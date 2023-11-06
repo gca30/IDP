@@ -19,6 +19,7 @@
 # Links
 - Google Drive: https://drive.google.com/drive/folders/1ARmU0Phr4KM0iht5VVzTSHMOpqvWqKKI?usp=sharing
 - Moodle: https://www.vle.cam.ac.uk/course/view.php?id=163282
+- Spotify: https://open.spotify.com/playlist/7319K8yNM7Xe6g0ajQ0TMM?si=jNb81WRST5qzq9ByQZrZsg&pt=36b66da757990dbd584ce3efc22457c7
 
 # Ideas
 - 2 wheels / 4 wheels / ?
