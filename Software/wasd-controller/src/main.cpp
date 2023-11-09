@@ -23,13 +23,12 @@ int main() {
     carsp.setPosition((float)layout.getSize().x / 2 - (float)car.getSize().x / 2 - 5, layout.getSize().y - car.getSize().y - 80);
     RenderWindow window(VideoMode(layout.getSize().x, layout.getSize().y), "IDP WASD Controller");
 
-    // cout << "Enter Arduino IP: ";
-    // cin >> ip;
-    // TcpSocket socket;
-    // if(socket.connect(ip, 5000) != Socket::Done) {
-    //     cerr << "Failed to connect to server" << endl;
-    //     return -1;
-    // }
+    cin >> ip;
+    TcpSocket socket;
+    if(socket.connect(ip, 5000) != Socket::Done) {
+        cerr << "Failed to connect to server" << endl;
+        return -1;
+    }
     Clock clock;
 
     Event event;
