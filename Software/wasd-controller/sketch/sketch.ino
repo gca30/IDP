@@ -1,4 +1,5 @@
-#include "WiFiS3.h"
+#include "SPI.h"
+#include "WiFiNINA.h"
 #include <Adafruit_MotorShield.h>
 
 char ssid[] = "M208 Arduino"; 
@@ -40,7 +41,7 @@ void setup() {
     motor2->run(RELEASE);
     Serial.println("Motors set up");
     
-    delay(10000);
+    delay(3000);
     server.begin();
     Serial.println("Server started");
 }
@@ -136,6 +137,7 @@ void loop() {
                 char data = client.read();
                 Serial.write(data);
                 updateMotors(data);
+                client.println("OK");
             }
         } 
     }

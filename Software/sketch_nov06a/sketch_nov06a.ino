@@ -6,6 +6,7 @@ Move the line sensor across the black and white line, monitor on serial
 */
 #include <Adafruit_MotorShield.h>
 
+// SENSOR PINS
 const int redButtonPin = 2;
 const int frontLeftLSP = 4; // LSP = line sensor pin
 const int frontRightLSP = 3;
@@ -14,10 +15,41 @@ const int axleRightLSP = 5;
 const int ultrasonicPin = A0;
 const int tofPin = 999;
 
+// SENSOR VALUES
+int button = LOW, prevButton = LOW;
+
+// HARD CODED DISTANCES
 const int movetime = 1450;
 const int rotatetime = 1300;
 
+// STATE
+char points[] = "x\
+ooooo\
+ooooo\
+xxoxx";
+enum State {
+    INACTIVE, // completely stopped
+    LINE_FOLLOWING, // we line follow until one of the back sensor is white
+    CHANGE_DIRECTION,
+    DEPOSIT
+};
+State state;
+enum Direction {
+    NORTH = -5,
+    SOUTH = 5,
+    WEST = -1,
+    EAST = 1
+};
+enum CubeState {
+    NO_CUBE,
+    NOT_MAGNETIC,
+    MAGNETIC
+}
+int cubesCollected = 0;
+CubeState cubeState = NO_CUBE;
+int ourPoint = 13, direct = NORTH, desiredDir = NORTH;
 bool active = false;
+
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(1);
 Adafruit_DCMotor* motor2 = AFMS.getMotor(3);
@@ -73,42 +105,146 @@ void setup() {
     pinMode(redButtonPin, INPUT);
 }
 
-
-int prevb = LOW;
-void loop() {
-
-    int button = digitalRead(redButtonPin);
-    if(button != prevb) {
-      prevb = button;
-      if(button == HIGH)
-        active = !active;
+Direction getDesiredDirection() {
+  // we know ourPoint, current direction, cubeState != NO_CUBE
+  if(cubeState == NO_CUBE) {
+    switch(ourPoint) {
+      case 8:
+        return direction;
+      case 10:
+        return NORTH;
+      case 3:
+        if(direction == NORTH)
+          return WEST;
+        else
+          return SOUTH;
+      case 2:
+      case 5:
+      case 4:
+        return WEST;
+      case 1:
+        return SOUTH;
+      case 6:
+      case 7:
+      case 9:
+        return EAST;
     }
+  }
+}
 
-    if(!active) {
-      delay(10);
-      return;
-    }
+void lineFollowingLoop() {
+    int frontLeft = digitalRead(frontLeftLSP);
+    int frontRight = digitalRead(frontRightLSP);
+    int axleLeft = digitalRead(axleLeftLSP);
+    int axleRight = digitalRead(axleRightLSP);
     
-   int frontLeft = digitalRead(frontLeftLSP);
-   int frontRight = digitalRead(frontRightLSP);
-   int axleLeft = digitalRead(axleLeftLSP);
-   int axleRight = digitalRead(axleRightLSP);
-  
    if (frontLeft == 0 && frontRight == 1)
       setMovement(R_RIGHT);
    else if (frontLeft == 1 && frontRight == 0)
       setMovement(R_LEFT);
    else if (frontLeft == 1 && frontRight == 1)
       setMovement(M_FORWARD);
-   else if(frontLeft == 0 && frontRight == 0) {
+   else if(frontLeft == 0 && frontRight == 0)
       setMovement(M_FORWARD);
-      delay(movetime);
-      setMovement(R_RIGHT);
-      delay(rotatetime);
+
+   if(axleRight == 1 || axleLeft == 1) {
+        ourPoint += direct;
+        if(ourPoint == 13) { //arrived at start square
+          state = DEPOSIT;
+        }
+        desiredDir = getDesiredDirection();
+        state = CHANGE_DIRECTION;
    }
-  delay(10);
 }
 
+void changeDirectionLoop() {
+    int frontLeft = digitalRead(frontLeftLSP);
+    int frontRight = digitalRead(frontRightLSP);
+    int axleLeft = digitalRead(axleLeftLSP);
+    int axleRight = digitalRead(axleRightLSP);
+
+    if(desiredDir == direct) {
+       if(ourPoint == 13)
+          state = DEPOSIT;
+       else
+          state = LINE_FOLLOWING;
+      return;
+    }
+
+    // current direct, desiredDir
+    Movement m = R_RIGHT;
+    if(
+      (direct == NORTH && desiredDir == WEST) ||
+      (direct == WEST && desiredDir == SOUTH) ||
+      (direct == SOUTH && desiredDir == EAST) ||
+      (direct == EAST && desiredDir == NORTH)
+    )
+      setMovement(R_LEFT);
+    else
+      setMovement(R_RIGHT);
+    
+    if(frontLeft != HIGH && frontRight != HIGH)
+       return;
+
+    setMovement(STOPPED);
+
+    if(desiredDir == -currentDir) {
+      switch(direct) {
+        case NORTH: direct = EAST; break;
+        case EAST: direct = SOUTH; break;
+        case SOUTH: direct = WEST; break;
+        case WEST: direct = NORTH; break;
+      }
+    }
+    else
+      direct = desiredDir;
+}
+
+int prevb = LOW;
+void loop() {
+
+    // SENSOR READING
+    button = digitalRead(redButtonPin);
+
+    // BUTTON
+    if(prevButton == HIGH && button == LOW) {
+       if(state == INACTIVE)
+          state = LINE_FOLLOWING;
+       else
+        state = INACTIVE:
+    }
+    prevButton = button;
+
+    // ACTION BASED ON STATE
+    switch(state) {
+       case INACTIVE:
+       case DEPOSIT;
+          setMovement(STOPPED);
+          break;
+       case LINE_FOLLOWING:
+          lineFollowingLoop();
+          break;
+       case CHANGE_DIRECTION:
+          changeDirectionLoop();
+          break;
+   }
+          
+  delay(10);
+}
+/*
+ * SNIPPEETS
+ */
+/*
+
+// READING FROM THE IR SENSOR
+#define MAX_RANG (520)
+#define ADC_SOLUTION (1023.0)
+int sensityPin = A0;
+float sensity_t = analogRead(sensityPin);
+float dist_t = sensity_t * MAX_RANG / ADC_SOLUTION;
+
+*/
+/* */
 
 /*
 #include <Adafruit_MotorShield.h>
