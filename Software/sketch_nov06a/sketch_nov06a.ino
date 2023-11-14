@@ -1,17 +1,12 @@
-/*
-IDP
-David Paterson
-Line Sensor Module Example Code V1
-Move the line sensor across the black and white line, monitor on serial 
-*/
 #include <Adafruit_MotorShield.h>
 
 // SENSOR PINS
 const int redButtonPin = 2;
-const int frontLeftLSP = 4; // LSP = line sensor pin
-const int frontRightLSP = 3;
-const int axleLeftLSP = 6;
-const int axleRightLSP = 5;
+const int frontLeftLSP = 6; // LSP = line sensor pin
+const int frontRightLSP = 4;
+const int axleLeftLSP = 5;
+const int axleRightLSP = 3;
+const int magneticPin = 999;
 const int ultrasonicPin = A0;
 const int tofPin = 999;
 
@@ -30,10 +25,10 @@ xxoxx";
 enum State {
     INACTIVE, // completely stopped
     LINE_FOLLOWING, // we line follow until one of the back sensor is white
-    CHANGE_DIRECTION,
-    DEPOSIT
+    CHANGE_DIRECTION, // we change our direction at a junction until the desiredDir is hit
+    DEPOSIT // depositing of the cube from the starting position
 };
-State state;
+State state = INACTIVE;
 enum Direction {
     NORTH = -5,
     SOUTH = 5,
@@ -44,11 +39,12 @@ enum CubeState {
     NO_CUBE,
     NOT_MAGNETIC,
     MAGNETIC
-}
-int cubesCollected = 0;
+};
 CubeState cubeState = NO_CUBE;
-int ourPoint = 13, direct = NORTH, desiredDir = NORTH;
-bool active = false;
+int cubesCollected = 0;
+int ourPoint = 13;
+Direction direct = NORTH, desiredDir = NORTH;
+int clearedLine = 0;
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(1);
@@ -76,14 +72,20 @@ static inline void setMovement(Movement m) {
         motor2->run(BACKWARD);
         break;
       case M_FORWARD:
-        motor1->run(BACKWARD);
-        motor2->run(FORWARD);
-        break;
-      case M_BACKWARD:
         motor1->run(FORWARD);
         motor2->run(BACKWARD);
         break;
+      case M_BACKWARD:
+        motor1->run(BACKWARD);
+        motor2->run(FORWARD);
+        break;
     }
+}
+
+float getUltrasonicDistance() {
+  float sensity_t = analogRead(ultrasonicPin);
+  float dist_t = sensity_t * 520 / 1023.0;
+  return dist_t;
 }
 
 void setup() {
@@ -106,15 +108,15 @@ void setup() {
 }
 
 Direction getDesiredDirection() {
-  // we know ourPoint, current direction, cubeState != NO_CUBE
+  // we know ourPoint, current direction, cubeState
   if(cubeState == NO_CUBE) {
     switch(ourPoint) {
       case 8:
-        return direction;
+        return direct;
       case 10:
         return NORTH;
       case 3:
-        if(direction == NORTH)
+        if(direct == NORTH)
           return WEST;
         else
           return SOUTH;
@@ -147,13 +149,18 @@ void lineFollowingLoop() {
    else if(frontLeft == 0 && frontRight == 0)
       setMovement(M_FORWARD);
 
-   if(axleRight == 1 || axleLeft == 1) {
+    if(axleRight == 0 && axleLeft == 0)
+      clearedLine = false;
+   if(!clearedLine && (axleRight == 1 || axleLeft == 1)) {
+        clearedLine = true;
         ourPoint += direct;
         if(ourPoint == 13) { //arrived at start square
           state = DEPOSIT;
         }
-        desiredDir = getDesiredDirection();
-        state = CHANGE_DIRECTION;
+        else {
+          desiredDir = getDesiredDirection();
+          state = CHANGE_DIRECTION;
+        }
    }
 }
 
@@ -188,19 +195,18 @@ void changeDirectionLoop() {
 
     setMovement(STOPPED);
 
-    if(desiredDir == -currentDir) {
+    if(desiredDir == -direct) {
       switch(direct) {
-        case NORTH: direct = EAST; break;
-        case EAST: direct = SOUTH; break;
-        case SOUTH: direct = WEST; break;
-        case WEST: direct = NORTH; break;
+        case NORTH: direct = EAST;  break;
+        case EAST:  direct = SOUTH; break;
+        case SOUTH: direct = WEST;  break;
+        case WEST:  direct = NORTH; break;
       }
     }
     else
       direct = desiredDir;
 }
 
-int prevb = LOW;
 void loop() {
 
     // SENSOR READING
@@ -211,14 +217,14 @@ void loop() {
        if(state == INACTIVE)
           state = LINE_FOLLOWING;
        else
-        state = INACTIVE:
+          state = INACTIVE;
     }
     prevButton = button;
 
     // ACTION BASED ON STATE
     switch(state) {
        case INACTIVE:
-       case DEPOSIT;
+       case DEPOSIT:
           setMovement(STOPPED);
           break;
        case LINE_FOLLOWING:
@@ -231,97 +237,3 @@ void loop() {
           
   delay(10);
 }
-/*
- * SNIPPEETS
- */
-/*
-
-// READING FROM THE IR SENSOR
-#define MAX_RANG (520)
-#define ADC_SOLUTION (1023.0)
-int sensityPin = A0;
-float sensity_t = analogRead(sensityPin);
-float dist_t = sensity_t * MAX_RANG / ADC_SOLUTION;
-
-*/
-/* */
-
-/*
-#include <Adafruit_MotorShield.h>
-
-const int ledPin = 2;
-const int redButtonPin = 1;
-
-Adafruit_MotorShield AFMS = Adafruit_MotorShield();
-Adafruit_DCMotor* motor1 = AFMS.getMotor(1);
-Adafruit_DCMotor* motor2 = AFMS.getMotor(3);
-
-int state=0, prevb=LOW;
-void setup() {
-    Serial.begin(9600);           // set up Serial library at 9600 bps
-    if (!AFMS.begin()) {         // create with the default frequency 1.6KHz
-      Serial.println("Could not find Motor Shield. Check wiring.");
-      while (1);
-    }
-    pinMode(redButtonPin, INPUT);
-    Serial.println("Starting!!!!1!");
-    motor1->setSpeed(150);
-    motor1->run(FORWARD);
-    motor1->run(RELEASE);
-    motor2->setSpeed(150);
-    motor2->run(FORWARD);
-    motor2->run(RELEASE);
-    
-}
-
-void loop() {
-    int button = digitalRead(redButtonPin);
-    if(prevb == HIGH && button == LOW) {
-      state = (state+1)%5;
-      Serial.print("Switched to state ");
-      Serial.println(state);
-      switch(state) {
-        case 0:
-          // RIGHT
-          motor1->run(BACKWARD);
-          motor2->run(BACKWARD);
-          break;
-        case 1:
-          // LEFT
-          motor1->run(FORWARD);
-          motor2->run(FORWARD);
-          break;
-        case 2:
-          // BACKWARD
-          motor1->run(FORWARD);
-          motor2->run(BACKWARD);
-          break;
-        case 3:
-          // FORWARD
-          motor1->run(BACKWARD);
-          motor2->run(FORWARD);
-          break;
-        case 4:
-          // STOP
-          motor1->run(RELEASE);
-          motor2->run(RELEASE);
-          break;
-      }
-    }
-    prevb = button;
-    delay(1);
-}
-
-/*
- * SNIPPEETS
- */
-/*
-
-// READING FROM THE Ultrasonic SENSOR
-#define MAX_RANG (520)
-#define ADC_SOLUTION (1023.0)
-int sensityPin = A0;
-float sensity_t = analogRead(sensityPin);
-float dist_t = sensity_t * MAX_RANG / ADC_SOLUTION;
-
-*/
