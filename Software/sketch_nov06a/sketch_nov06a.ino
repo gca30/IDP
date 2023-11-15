@@ -45,6 +45,7 @@ int cubesCollected = 0;
 int ourPoint = 13;
 Direction direct = NORTH, desiredDir = NORTH;
 int clearedLine = 0;
+int clearedRotation = 0;
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(1);
@@ -95,9 +96,9 @@ void setup() {
         while (1);
     }
     Serial.println("Starting!!!!1!");
-    motor1->setSpeed(150);
+    motor1->setSpeed(250);
     motor1->run(RELEASE);
-    motor2->setSpeed(150);
+    motor2->setSpeed(250);
     motor2->run(RELEASE);
       
     pinMode(frontLeftLSP, INPUT); 
@@ -151,14 +152,24 @@ void lineFollowingLoop() {
 
     if(axleRight == 0 && axleLeft == 0)
       clearedLine = false;
-   if(!clearedLine && (axleRight == 1 || axleLeft == 1)) {
+    if(!clearedLine && (axleRight == 1 || axleLeft == 1)) {
         clearedLine = true;
         ourPoint += direct;
+    Serial.print("WE ARE AT: ");
+    Serial.print(ourPoint);
+    Serial.print("   ");
+    Serial.println(direct);
         if(ourPoint == 13) { //arrived at start square
           state = DEPOSIT;
         }
         else {
+          // direct 
           desiredDir = getDesiredDirection();
+          Serial.print("CHANGE OF DIR: ");
+          Serial.print(direct);
+          Serial.print(" -> ");
+          Serial.println(desiredDir);
+          clearedRotation = false;
           state = CHANGE_DIRECTION;
         }
    }
@@ -171,6 +182,10 @@ void changeDirectionLoop() {
     int axleRight = digitalRead(axleRightLSP);
 
     if(desiredDir == direct) {
+      
+    Serial.print(ourPoint);
+    Serial.print("   ");
+    Serial.println(direct);
        if(ourPoint == 13)
           state = DEPOSIT;
        else
@@ -178,8 +193,9 @@ void changeDirectionLoop() {
       return;
     }
 
+
+
     // current direct, desiredDir
-    Movement m = R_RIGHT;
     if(
       (direct == NORTH && desiredDir == WEST) ||
       (direct == WEST && desiredDir == SOUTH) ||
@@ -190,8 +206,16 @@ void changeDirectionLoop() {
     else
       setMovement(R_RIGHT);
     
+    // it can only exit the loop if it has cleared the line
+    if(frontLeft == LOW && frontRight == LOW)
+      clearedRotation = true;
+
     if(frontLeft != HIGH && frontRight != HIGH)
-       return;
+       return; //loop back
+    if(!clearedRotation)
+      return;
+      
+    Serial.println("Stopped rotating");
 
     setMovement(STOPPED);
 
@@ -220,6 +244,7 @@ void loop() {
           state = INACTIVE;
     }
     prevButton = button;
+
 
     // ACTION BASED ON STATE
     switch(state) {
