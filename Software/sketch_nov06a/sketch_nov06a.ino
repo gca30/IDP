@@ -36,12 +36,15 @@ ooooo\
 xooox\
 xoxox";
 
+int delayCounter = 1000;
+
 enum State {
     INACTIVE, // completely stopped
     INITIAL, // the initial state of the car, in which it needs to move forward until it hits the line
     LINE_FOLLOWING, // we line follow until one of the back sensor is white
     CHANGE_DIRECTION, // we change our direction at a junction until the desiredDir is hit
     DEPOSIT // depositing of the cube from the starting position
+    DELAY,
 };
 
 enum Direction {
@@ -77,7 +80,7 @@ State state = INACTIVE;
 TaskState taskState = FIRST_CUBE;
 CubeState cubeState = NO_CUBE;
 
-int position = 18;
+int positon = 18;
 Direction directn = NORTH;
 bool backwards = false;
 
@@ -126,7 +129,7 @@ static inline void setMovement(Movement m) {
     }
 }
 
-#define MEDIAN_SIZE 6
+#define MEDIAN_SIZE 13
 float getUltrasonicDistance() {
     static float dists[MEDIAN_SIZE];
     static float sorted[MEDIAN_SIZE];
@@ -164,10 +167,14 @@ void setCubeState(CubeState cb) {
         case NOT_MAGNETIC:
             digitalWrite(redLEDPin, LOW);
             digitalWrite(greenLEDPin, HIGH);
+            delayCounter = 1000;
+            setState(DELAY);
             break;
         case MAGNETIC:
             digitalWrite(redLEDPin, HIGH);
             digitalWrite(greenLEDPin, LOW);
+            delayCounter = 1000;
+            setState(DELAY);
             break;
     }
 }
@@ -180,7 +187,11 @@ void setCubeState(CubeState cb) {
 
 Direction getDesiredDirection() {
     if(cubeState == NO_CUBE) {
-        switch(position) {
+        Serial.print("at pos ");
+            Serial.print(positon);
+            Serial.print(" keep direction ");
+            Serial.println(directn);
+        switch(positon) {
         case 1:
             return EAST;
         case 2:
@@ -225,28 +236,45 @@ Direction getDesiredDirection() {
             break;
         case 10:
             return WEST;
+        case 13:
+            return directn;
         default:
-            return NORTH;
+            return directn;
         }
     }
     else {
-        // TODO: turn back
+        Serial.println("CUBE GOT");
+        switch(positon % 5) {
+          case 1: case 2:
+              return EAST;
+          case 3:
+              return SOUTH;
+          case 4: case 0:
+              return WEST;
+        }
         return SOUTH;
     }
 
     // unreachable 
     // digitalWrite(errorLEDPin, HIGH);
     setState(INACTIVE);
-    return SOUTH;
+    return NORTH;
 }
 
 CubeState csAtLastJunction = NO_CUBE;
 
 void updateOnJunction() {
-    position += directn;
+    positon += directn;
+    Serial.print("pos = ");
+    Serial.print(positon);
+    Serial.print(", dir = ");
+    Serial.print(directn);
+    Serial.print(", desired dir = ");
+    Serial.print(desiredDir);
+    Serial.println(" !!!");
     desiredDir = getDesiredDirection();
     if(csAtLastJunction == NO_CUBE)
-        points[position] = 'e'; // now the position is are empty
+        points[positon] = 'e'; // now the position is are empty
     csAtLastJunction = cubeState;
 }
 
@@ -303,7 +331,7 @@ void changeDirectionSetup() {
         (directn == EAST && desiredDir == NORTH)
     )
         setMovement(R_LEFT);
-    else if(directn == -desiredDir && (position-1)%5 > 2) // special case when turing at point 6
+    else if(directn == -desiredDir && (positon-1)%5 > 2) // special case when turing at point 6
         setMovement(R_LEFT);
     else
         setMovement(R_RIGHT);
@@ -332,7 +360,7 @@ void changeDirectionLoop() {
 
 void initialLoop() {
     // initial wait time to get ultrasonic sensor median readings
-    static int counter = 6;
+    static int counter = 13;
     if(counter > 0) {
         counter--;
         if(counter == 0)
@@ -344,6 +372,18 @@ void initialLoop() {
         shouldChangeState = true;
 }
 
+
+// DELAY STATE
+
+void delaySetup() {}
+
+void delayLoop() {
+    if(delayCounter == 0) {
+        shouldChangeState = true;
+        return;
+    }
+    delayCounter--;
+}
 
 
 // ----------------
@@ -369,6 +409,8 @@ void setState(State newState) {
         case INACTIVE:
             setMovement(STOPPED);
             break;
+        case DELAY:
+            delaySetup();
         default:
             break;
     }
@@ -380,19 +422,28 @@ void statesChange() {
     if(!shouldChangeState)
         return;
     shouldChangeState = false;
+
+    Serial.print("positon = ");
+    Serial.print(positon);
+    Serial.println(",  directn = ");
+    Serial.print(directn);
+    Serial.println("");
     
     switch(state) {
         case INITIAL:
             setState(LINE_FOLLOWING);
             break;
         case LINE_FOLLOWING:
-            if(position == 13)
+            if(positon == 18 && cubeState != NO_CUBE)
                 setState(DEPOSIT);
             else
                 setState(CHANGE_DIRECTION);
             break;
+        case DELAY:
+            setState(LINE_FOLLOWING);
+            break;
         case CHANGE_DIRECTION:
-            if(position == 13)
+            if(positon == 18 && cubeState != NO_CUBE)
                 setState(DEPOSIT);
             else
                 setState(LINE_FOLLOWING);
@@ -448,11 +499,19 @@ void loop() {
         setState(state == INACTIVE ? prevState : INACTIVE);
 
     // Ultrasonic sensor changes LED state
-    if((ultrasonic < 6.0 || ultrasonic > 518.0) && cubeState == NO_CUBE) {
+    if(cubeState == NO_CUBE)
+        Serial.println(ultrasonic);
+    if(
+        (frontRight == HIGH || frontLeft == HIGH) && 
+        state != INACTIVE && state != INITIAL && 
+        (ultrasonic < 6.0 || ultrasonic > 480.0) && 
+        cubeState == NO_CUBE
+    ) {
         if(magnetic == HIGH)
             setCubeState(MAGNETIC);
         else
             setCubeState(NOT_MAGNETIC);
+        setState(DELAY);
     }
 
     statesChange();
@@ -465,6 +524,9 @@ void loop() {
             break;
         case INITIAL:
             initialLoop();
+            break;
+        case DELAY:
+            delayLoop();
             break;
         case LINE_FOLLOWING:
             lineFollowingLoop();

@@ -6,15 +6,16 @@
 - ~~Mon 6: Teamwork Lecture~~
 - ~~Tue 7: Progress Meeting~~
 - ~~Wed 8: Session~~
-- Thu 9: Session
-- Mon 13: Session
-- Tue 14: Progress Meeting + **PEER ASSESMENT**
-- Wed 15: Session
-- Thu 16: Session
-- Mon 20: Session
-- Tue 21: Progress Meeting
+- ~~Thu 9: Session~~
+- ~~Mon 13: Session~~
+- ~~Tue 14: Progress Meeting + **PEER ASSESMENT**~~
+- ~~Wed 15: Session~~
+- ~~Thu 16: Session~~
+- ~~Mon 20: Session~~
+- Tue 21: Progress Meeting + **PRESENTATION**
 - Wed 22: Session
-- Thu 23: **IDP COMPETITION**
+- Thu 23: **IDP COMPETITION 1**
+
 
 # Links
 - Google Drive: https://drive.google.com/drive/folders/1ARmU0Phr4KM0iht5VVzTSHMOpqvWqKKI?usp=sharing
@@ -37,7 +38,7 @@
 
 # First Algorithm
 
-Is this correct?
+We don't use this.
 
 We number the points. Point 1 is at the inital position. Point 2 is where the car will first reach the white line when moving forwoard from ttghe initiasl position. 
 From there points are numbered from number 3 to 12 in a clockwise fashion. 
