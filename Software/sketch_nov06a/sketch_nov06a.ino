@@ -167,14 +167,10 @@ void setCubeState(CubeState cb) {
         case NOT_MAGNETIC:
             digitalWrite(redLEDPin, LOW);
             digitalWrite(greenLEDPin, HIGH);
-            delayCounter = 1000;
-            setState(DELAY);
             break;
         case MAGNETIC:
             digitalWrite(redLEDPin, HIGH);
             digitalWrite(greenLEDPin, LOW);
-            delayCounter = 1000;
-            setState(DELAY);
             break;
     }
 }
@@ -309,7 +305,12 @@ void lineFollowingLoop() {
         outOfJunction = true;
     if(outOfJunction && (axleRight == 1 || axleLeft == 1)) {
         updateOnJunction();
-        shouldChangeState = true;
+        if(positon == 13 && directn == SOUTH)
+            setState(DEPOSIT);
+        else if(desiredDir != directn)
+            setState(CHANGE_DIRECTION);
+        else
+            setState(LINE_FOLLOWING);
     }
 }
 
@@ -319,10 +320,6 @@ int rotationIterations;
 
 void changeDirectionSetup() {
     outOfJunction = false;
-    if(desiredDir == directn) {
-        shouldChangeState = true;
-        return;
-    }
     rotationIterations = directn == -desiredDir ? 2 : 1;
     if(
         (directn == NORTH && desiredDir == WEST) ||
@@ -353,10 +350,14 @@ void changeDirectionLoop() {
         return;
     }
     directn = desiredDir;
-    shouldChangeState = true;
+    setState(LINE_FOLLOWING);
 }
 
 // INITIAL STATE
+
+void initialSetup() {
+  positon = 18;
+}
 
 void initialLoop() {
     // initial wait time to get ultrasonic sensor median readings
@@ -369,7 +370,7 @@ void initialLoop() {
     }
     // move forward until we hit the line
     if(frontLeft == HIGH && frontRight == HIGH)
-        shouldChangeState = true;
+        setState(LINE_FOLLOWING);
 }
 
 
@@ -379,10 +380,76 @@ void delaySetup() {}
 
 void delayLoop() {
     if(delayCounter == 0) {
-        shouldChangeState = true;
+        setState(prevState);
         return;
     }
     delayCounter--;
+}
+
+// INACTIVE STATE
+
+void inactiveSetup() {
+    setMovement(STOPPED);
+}
+
+void inactiveLoop() {
+  ;;
+}
+
+// DEPOSIT STATE
+
+const int depositRotate = 260;
+const int depositBack = 500;
+const int depositForward = 3000;
+int depositProgress = 0;
+int depositTimer = 0;
+CubeState initialCubeState = 0;
+
+void depositSetup() {
+    depositProgress = 0;  
+    initialCubeState = cubeState;
+}
+
+void depositLoop() {
+    if(depositTimer > 0) {
+        depositTimer--;
+        return;
+    }
+    switch(depositProgress) {
+        case 0:
+            setMovement(M_FORWARD);
+            depositTimer = 20;
+            break;
+        case 1:
+            setMovement(initialCubeState == MAGNETIC ? M_RIGHT : M_LEFT);
+            depositTimer = depositRotate;
+            break;
+        case 2:
+            setMovement(M_FORWARD);
+            depositTimer = depositForward;
+            break;
+        case 3:
+            setMovement(M_RELEASE);
+            depositTimer = 50;
+            break;
+        case 4:
+            setMovement(M_BACKWARD);
+            depositTimer = depositBack;
+            break;
+        case 5:
+            setMovement(M_BACKWARD);
+            depositTimer = depositForward - depositBack;
+            break;
+        case 6:
+            setMovement(initialCubeState == MAGNETIC ? M_LEFT : M_RIGHT);
+            depositTimer = depositRotate;
+            break;
+        case 7:
+            taskState++;
+            setState(INITIAL);
+            return;
+    }
+    depositProgress++;
 }
 
 
@@ -407,7 +474,7 @@ void setState(State newState) {
             changeDirectionSetup();
             break;
         case INACTIVE:
-            setMovement(STOPPED);
+            inactiveSetup();
             break;
         case DELAY:
             delaySetup();
@@ -416,37 +483,49 @@ void setState(State newState) {
     }
 }
 
-// STATE MACHINE
-void statesChange() {
+void stateSensors() {
+    // Button sets inactive state
+    if(prevButton == HIGH && button == LOW)
+        setState(state == INACTIVE ? prevState : INACTIVE);
 
-    if(!shouldChangeState)
-        return;
-    shouldChangeState = false;
+    // Ultrasonic sensor changes LED state
+    if(cubeState == NO_CUBE)
+        Serial.println(ultrasonic);
+    if(
+        (frontRight == HIGH || frontLeft == HIGH) && 
+        state != INACTIVE && state != INITIAL && cubeState == NO_CUBE
+        (ultrasonic < 6.0 || ultrasonic > 480.0)
+    ) {
+        if(magnetic == HIGH)
+            setCubeState(MAGNETIC);
+        else
+            setCubeState(NOT_MAGNETIC);
+        setMovement(STOPPED);
+        delayCounter = 1000;
+        setState(DELAY);
+    }
+}
 
-    Serial.print("positon = ");
-    Serial.print(positon);
-    Serial.println(",  directn = ");
-    Serial.print(directn);
-    Serial.println("");
-    
+void statesLoop() {
+    // ACTION BASED ON STATE
     switch(state) {
-        case INITIAL:
-            setState(LINE_FOLLOWING);
+        case INACTIVE:
+            inactiveLoop();
             break;
-        case LINE_FOLLOWING:
-            if(positon == 18 && cubeState != NO_CUBE)
-                setState(DEPOSIT);
-            else
-                setState(CHANGE_DIRECTION);
+        case DEPOSIT:
+            depositLoop();
+            break;
+        case INITIAL:
+            initialLoop();
             break;
         case DELAY:
-            setState(LINE_FOLLOWING);
+            delayLoop();
+            break;
+        case LINE_FOLLOWING:
+            lineFollowingLoop();
             break;
         case CHANGE_DIRECTION:
-            if(positon == 18 && cubeState != NO_CUBE)
-                setState(DEPOSIT);
-            else
-                setState(LINE_FOLLOWING);
+            changeDirectionLoop();
             break;
     }
 }
@@ -494,47 +573,10 @@ void loop() {
     ultrasonic = getUltrasonicDistance();
     magnetic = digitalRead(magneticSensorPin);
 
-    // Button sets inactive state
-    if(prevButton == HIGH && button == LOW)
-        setState(state == INACTIVE ? prevState : INACTIVE);
+    setState(DELAY);
 
-    // Ultrasonic sensor changes LED state
-    if(cubeState == NO_CUBE)
-        Serial.println(ultrasonic);
-    if(
-        (frontRight == HIGH || frontLeft == HIGH) && 
-        state != INACTIVE && state != INITIAL && 
-        (ultrasonic < 6.0 || ultrasonic > 480.0) && 
-        cubeState == NO_CUBE
-    ) {
-        if(magnetic == HIGH)
-            setCubeState(MAGNETIC);
-        else
-            setCubeState(NOT_MAGNETIC);
-        setState(DELAY);
-    }
-
+    statesSensors();
     statesChange();
-
-    // ACTION BASED ON STATE
-    switch(state) {
-        case INACTIVE:
-        case DEPOSIT:
-            ;; // do nothing
-            break;
-        case INITIAL:
-            initialLoop();
-            break;
-        case DELAY:
-            delayLoop();
-            break;
-        case LINE_FOLLOWING:
-            lineFollowingLoop();
-            break;
-        case CHANGE_DIRECTION:
-            changeDirectionLoop();
-            break;
-    }
-          
+    statesLoop();      
     delay(5);
 }
