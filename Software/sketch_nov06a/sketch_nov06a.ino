@@ -10,13 +10,12 @@ const int frontLeftLSP = 6; // LSP = line sensor pin
 const int frontRightLSP = 4;
 const int axleLeftLSP = 5;
 const int axleRightLSP = 3;
-const int magneticPin = 999;
 const int ultrasonicPin = A0;
 const int redLEDPin = 999;
 const int greenLEDPin = 999;
 const int blueLEDPin = 999;
 const int tofPin = 999;
-const int magneticSensorPin = 999;
+const int magneticSensorPin = 7;
 const int errorLEDPin = 999;
 
 // SENSOR VALUES
@@ -36,15 +35,13 @@ ooooo\
 xooox\
 xoxox";
 
-int delayCounter = 1000;
-
 enum State {
     INACTIVE, // completely stopped
     INITIAL, // the initial state of the car, in which it needs to move forward until it hits the line
     LINE_FOLLOWING, // we line follow until one of the back sensor is white
     CHANGE_DIRECTION, // we change our direction at a junction until the desiredDir is hit
-    DEPOSIT // depositing of the cube from the starting position
-    DELAY,
+    DEPOSIT, // depositing of the cube from the starting position
+    PICKUP_DELAY // delay when the cube is picked up
 };
 
 enum Direction {
@@ -80,11 +77,14 @@ State state = INACTIVE;
 TaskState taskState = FIRST_CUBE;
 CubeState cubeState = NO_CUBE;
 
+
 int positon = 18;
 Direction directn = NORTH;
 bool backwards = false;
 
 Direction desiredDir = NORTH;
+State prevState = INITIAL;
+int delayCounter = 1000;
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(1);
@@ -97,6 +97,8 @@ Adafruit_DCMotor* motor2 = AFMS.getMotor(3);
 // ----------------
 
 static inline void setMovement(Movement m) {
+    // f = f
+    // l = r
     switch(m) {
         case STOPPED:
             motor1->run(RELEASE);
@@ -105,14 +107,14 @@ static inline void setMovement(Movement m) {
         case R_LEFT:
             motor1->setSpeed(150);
             motor2->setSpeed(150);
-            motor1->run(FORWARD);
-            motor2->run(FORWARD);
+            motor1->run(BACKWARD);
+            motor2->run(BACKWARD);
             break;
         case R_RIGHT:
             motor1->setSpeed(150);
             motor2->setSpeed(150);
-            motor1->run(BACKWARD);
-            motor2->run(BACKWARD);
+            motor1->run(FORWARD);
+            motor2->run(FORWARD);
             break;
         case M_FORWARD:
             motor1->setSpeed(200);
@@ -182,11 +184,40 @@ void setCubeState(CubeState cb) {
 // ----------------
 
 Direction getDesiredDirection() {
+    /*if(cubeState == NO_CUBE) {
+        switch(positon) {
+        case 1:
+            return EAST;
+            break;
+        case 2:
+            if(directn == WEST)
+                return WEST;
+            else if(
+            break; 
+        case 3:
+            return WEST;
+            
+            break; 
+        case 4:
+            break; 
+        case 5:
+            break; 
+        case 6:
+            break; 
+        case 7:
+            break; 
+        case 8:
+            return NORTH;
+            break; 
+        case 9:
+            break; 
+        case 10:
+            break; 
+        default:
+            return directon;
+        }
+    }*/ 
     if(cubeState == NO_CUBE) {
-        Serial.print("at pos ");
-            Serial.print(positon);
-            Serial.print(" keep direction ");
-            Serial.println(directn);
         switch(positon) {
         case 1:
             return EAST;
@@ -239,7 +270,6 @@ Direction getDesiredDirection() {
         }
     }
     else {
-        Serial.println("CUBE GOT");
         switch(positon % 5) {
           case 1: case 2:
               return EAST;
@@ -261,16 +291,18 @@ CubeState csAtLastJunction = NO_CUBE;
 
 void updateOnJunction() {
     positon += directn;
+    desiredDir = getDesiredDirection();
     Serial.print("pos = ");
     Serial.print(positon);
     Serial.print(", dir = ");
     Serial.print(directn);
     Serial.print(", desired dir = ");
     Serial.print(desiredDir);
-    Serial.println(" !!!");
-    desiredDir = getDesiredDirection();
+    if(cubeState != NO_CUBE)
+        Serial.print(", with cube");
+    Serial.println("");
     if(csAtLastJunction == NO_CUBE)
-        points[positon] = 'e'; // now the position is are empty
+        points[positon] = 'e'; // now the position we are in is empty
     csAtLastJunction = cubeState;
 }
 
@@ -376,9 +408,12 @@ void initialLoop() {
 
 // DELAY STATE
 
-void delaySetup() {}
+void pickupDelaySetup() {
+    setMovement(STOPPED);
+    delayCounter = 1000;
+}
 
-void delayLoop() {
+void pickupDelayLoop() {
     if(delayCounter == 0) {
         setState(prevState);
         return;
@@ -399,11 +434,11 @@ void inactiveLoop() {
 // DEPOSIT STATE
 
 const int depositRotate = 260;
-const int depositBack = 500;
 const int depositForward = 3000;
+const int depositSmallForward = 20;
 int depositProgress = 0;
 int depositTimer = 0;
-CubeState initialCubeState = 0;
+CubeState initialCubeState = NO_CUBE;
 
 void depositSetup() {
     depositProgress = 0;  
@@ -418,10 +453,10 @@ void depositLoop() {
     switch(depositProgress) {
         case 0:
             setMovement(M_FORWARD);
-            depositTimer = 20;
+            depositTimer = depositSmallForward;
             break;
         case 1:
-            setMovement(initialCubeState == MAGNETIC ? M_RIGHT : M_LEFT);
+            setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
             depositTimer = depositRotate;
             break;
         case 2:
@@ -429,23 +464,16 @@ void depositLoop() {
             depositTimer = depositForward;
             break;
         case 3:
-            setMovement(M_RELEASE);
-            depositTimer = 50;
+            setMovement(M_BACKWARD);
+            setCubeState(NO_CUBE);
+            depositTimer = depositForward;
             break;
         case 4:
-            setMovement(M_BACKWARD);
-            depositTimer = depositBack;
-            break;
-        case 5:
-            setMovement(M_BACKWARD);
-            depositTimer = depositForward - depositBack;
-            break;
-        case 6:
-            setMovement(initialCubeState == MAGNETIC ? M_LEFT : M_RIGHT);
+            setMovement(initialCubeState == MAGNETIC ? R_LEFT : R_RIGHT);
             depositTimer = depositRotate;
             break;
-        case 7:
-            taskState++;
+        case 5:
+//             taskState += 1;
             setState(INITIAL);
             return;
     }
@@ -456,8 +484,6 @@ void depositLoop() {
 // ----------------
 // STATE MANAGEMENT
 // ----------------
-
-State prevState = INITIAL;
 
 // STATE SETUP
 void setState(State newState) {
@@ -473,11 +499,16 @@ void setState(State newState) {
         case CHANGE_DIRECTION:
             changeDirectionSetup();
             break;
+        case DEPOSIT:
+            depositSetup();
+            break;
         case INACTIVE:
             inactiveSetup();
             break;
-        case DELAY:
-            delaySetup();
+        case PICKUP_DELAY:
+            pickupDelaySetup();
+        case INITIAL:
+            initialSetup();
         default:
             break;
     }
@@ -489,20 +520,16 @@ void stateSensors() {
         setState(state == INACTIVE ? prevState : INACTIVE);
 
     // Ultrasonic sensor changes LED state
-    if(cubeState == NO_CUBE)
-        Serial.println(ultrasonic);
     if(
         (frontRight == HIGH || frontLeft == HIGH) && 
-        state != INACTIVE && state != INITIAL && cubeState == NO_CUBE
+        state != INACTIVE && state != INITIAL && state != DEPOSIT && cubeState == NO_CUBE &&
         (ultrasonic < 6.0 || ultrasonic > 480.0)
     ) {
         if(magnetic == HIGH)
             setCubeState(MAGNETIC);
         else
             setCubeState(NOT_MAGNETIC);
-        setMovement(STOPPED);
-        delayCounter = 1000;
-        setState(DELAY);
+        setState(PICKUP_DELAY);
     }
 }
 
@@ -518,8 +545,8 @@ void statesLoop() {
         case INITIAL:
             initialLoop();
             break;
-        case DELAY:
-            delayLoop();
+        case PICKUP_DELAY:
+            pickupDelayLoop();
             break;
         case LINE_FOLLOWING:
             lineFollowingLoop();
@@ -552,7 +579,7 @@ void setup() {
     pinMode(axleLeftLSP, INPUT); 
     pinMode(axleRightLSP, INPUT);
     pinMode(redButtonPin, INPUT);
-    // pinMode(magneticSensorPin, INPUT);
+    pinMode(magneticSensorPin, INPUT);
     // pinMode(ultrasonicPin, INPUT);
     // pinMode(redLEDPin, OUTPUT);
     // pinMode(greenLEDPin, OUTPUT);
@@ -573,10 +600,9 @@ void loop() {
     ultrasonic = getUltrasonicDistance();
     magnetic = digitalRead(magneticSensorPin);
 
-    setState(DELAY);
+    
 
-    statesSensors();
-    statesChange();
+    stateSensors();
     statesLoop();      
     delay(5);
 }
