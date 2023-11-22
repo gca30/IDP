@@ -59,11 +59,11 @@ enum CubeState {
     MAGNETIC
 };
 
-enum TaskState {
-    FIRST_CUBE,
-    SECOND_CUBE,
-    SCANNING_FIRST,
-    SCANNING_SECOND
+enum TaskState: int {
+    FIRST_CUBE = 0,
+    SECOND_CUBE = 1,
+    SCANNING_FIRST = 2,
+    SCANNING_SECOND = 3
 };
 
 enum Movement {
@@ -85,12 +85,12 @@ Direction directn = NORTH;
 bool backwards = false;
 
 Direction desiredDir = NORTH;
-State prevState = DEPOSIT;
+State prevState = INITIAL;
 int delayCounter = 1000;
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
-Adafruit_DCMotor* motor1 = AFMS.getMotor(1);
-Adafruit_DCMotor* motor2 = AFMS.getMotor(3);
+Adafruit_DCMotor* motor1 = AFMS.getMotor(4);
+Adafruit_DCMotor* motor2 = AFMS.getMotor(1);
 
 
 
@@ -107,28 +107,32 @@ static inline void setMovement(Movement m) {
             motor2->run(RELEASE);
             break;
         case R_LEFT:
+
             motor1->setSpeed(150);
             motor2->setSpeed(150);
-            motor1->run(FORWARD);
+            motor1->run(BACKWARD);
             motor2->run(FORWARD);
+
             break;
         case R_RIGHT:
             motor1->setSpeed(150);
             motor2->setSpeed(150);
-            motor1->run(BACKWARD);
+            motor1->run(FORWARD);
             motor2->run(BACKWARD);
+
             break;
         case M_FORWARD:
             motor1->setSpeed(200);
             motor2->setSpeed(200);
             motor1->run(FORWARD);
-            motor2->run(BACKWARD);
+            motor2->run(FORWARD);
+
             break;
         case M_BACKWARD:
             motor1->setSpeed(200);
             motor2->setSpeed(200);
             motor1->run(BACKWARD);
-            motor2->run(FORWARD);
+            motor2->run(BACKWARD);
             break;
     }
 }
@@ -502,7 +506,8 @@ void inactiveLoop() {
 
 // DEPOSIT STATE
 
-const int depositRotate = 300;
+
+const int depositRotate = 310;
 const int depositForward = 1200;
 const int depositSmallForward = 140;
 int depositProgress = 0;
@@ -538,11 +543,11 @@ void depositLoop() {
             depositTimer = depositForward;
             break;
         case 4:
-            setMovement(initialCubeState == MAGNETIC ? R_LEFT : R_RIGHT);
+            setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
             depositTimer = depositRotate;
             break;
         case 5:
-//             taskState += 1;
+            taskState = taskState + 1;
             setState(INITIAL);
             return;
     }
