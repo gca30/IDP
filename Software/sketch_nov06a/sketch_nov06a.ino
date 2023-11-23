@@ -335,8 +335,6 @@ void updateOnJunction() {
     Serial.print(directn);
     Serial.print(", desired dir = ");
     Serial.print(desiredDir);
-    if(cubeState == CUBE_NEXT_JUNCTION)
-      setCubeState(magnetic ? MAGNETIC : NOT_MAGNETIC);
     if(cubeState != NO_CUBE)
         Serial.print(", with cube");
     Serial.println("");
@@ -383,6 +381,10 @@ void lineFollowingLoop() {
         if(positon == 13 && directn == SOUTH) {
             setState(DEPOSIT);
             return;
+        }
+        if(cubeState == CUBE_NEXT_JUNCTION) {
+          setState(PICKUP_DELAY);
+          return;
         }
         setState(CHANGE_DIRECTION);
     }
@@ -483,12 +485,13 @@ void initialLoop() {
 
 void pickupDelaySetup() {
     setMovement(STOPPED);
+    setCubeState(magnetic ? MAGNETIC : NOT_MAGNETIC);
     delayCounter = 1000;
 }
 
 void pickupDelayLoop() {
     if(delayCounter == 0) {
-        setState(prevState);
+        setState(CHANGE_DIRECTION);
         return;
     }
     delayCounter--;
@@ -555,10 +558,6 @@ void depositLoop() {
     depositProgress++;
 }
 
-// VIBE CHECK STATE
-
-
-
 // ----------------
 // STATE MANAGEMENT
 // ----------------
@@ -570,6 +569,8 @@ void setState(State newState) {
     prevState = state;
     state = newState;
     // do setup for the new state
+    if(state != LINE_FOLLOWING && state != DEPOSIT)
+      digitalWrite(blueLEDPin, LOW);
     switch(state) {
         case LINE_FOLLOWING:
             lineFollowingSetup();
@@ -597,30 +598,23 @@ void setState(State newState) {
     }
 }
 
+int blueLEDTimer = 0;
+
 void stateSensors() {
     // Button sets inactive state
     if(prevButton == HIGH && button == LOW)
         setState(state == INACTIVE ? prevState : INACTIVE);
 
     // Ultrasonic sensor changes LED state
-    /*
-    if(cubeState == NO_CUBE)
-        Serial.println(ultrasonic);
-    if(
-        (frontRight == HIGH || frontLeft == HIGH) && 
-        state != INACTIVE && state != INITIAL && state != DEPOSIT && cubeState == NO_CUBE &&
-        (ultrasonic < 7.0 || ultrasonic > 480.0) && ultrasonic != 0.0
-    ) {
-        if(magnetic == HIGH) {
-            Serial.println("MAGNETIC!!");
-            setCubeState(MAGNETIC);
+    if(state == LINE_FOLLOWING || state == DEPOSIT) {
+        if(blueLEDTimer == 0) {
+            blueLEDTimer = 50;
+            digitalWrite(blueLEDPin, HIGH);
         }
-        else {
-            Serial.println("NOT MAGNETIC!");
-            setCubeState(NOT_MAGNETIC);
-        }
-        setState(PICKUP_DELAY);
-    } */
+        else if(blueLEDTimer == 25)
+            digitalWrite(blueLEDPin, LOW);
+        blueLEDTimer--;
+    }
 }
 
 void statesLoop() {
@@ -673,10 +667,10 @@ void setup() {
     pinMode(axleRightLSP, INPUT);
     pinMode(redButtonPin, INPUT);
     pinMode(magneticSensorPin, INPUT);
-    // pinMode(ultrasonicPin, INPUT);
-    // pinMode(redLEDPin, OUTPUT);
-    // pinMode(greenLEDPin, OUTPUT);
-    // pinMode(blueLEDPin, OUTPUT);
+    pinMode(ultrasonicPin, INPUT);
+    pinMode(redLEDPin, OUTPUT);
+    pinMode(greenLEDPin, OUTPUT);
+    pinMode(blueLEDPin, OUTPUT);
     // pinMode(errorLEDPin, INPUT);
     // pinMode(tofPin, INPUT);
 }
