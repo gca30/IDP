@@ -507,8 +507,9 @@ void inactiveLoop() {
 // DEPOSIT STATE
 
 
-const int depositRotate = 310;
+const int depositRotate = 330;
 const int depositForward = 1200;
+const int depositBackward = 1000;
 const int depositSmallForward = 140;
 int depositProgress = 0;
 int depositTimer = 0;
@@ -540,7 +541,7 @@ void depositLoop() {
         case 3:
             setMovement(M_BACKWARD);
             setCubeState(NO_CUBE);
-            depositTimer = depositForward;
+            depositTimer = depositBackward;
             break;
         case 4:
             setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
