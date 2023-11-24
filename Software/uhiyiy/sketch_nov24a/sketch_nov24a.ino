@@ -28,6 +28,10 @@ void setup() {
  sensor.setMode(sensor.eContinuous,sensor.eHigh);
  //Laser rangefinder begins to work
  sensor.start();
+  motor1->setSpeed(150);
+  motor1->run(RELEASE);
+  motor2->setSpeed(150);
+  motor2->run(RELEASE);
 }
 
 
