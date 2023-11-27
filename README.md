@@ -12,9 +12,12 @@
 - ~~Wed 15: Session~~
 - ~~Thu 16: Session~~
 - ~~Mon 20: Session~~
-- Tue 21: Progress Meeting + **PRESENTATION**
-- Wed 22: Session
-- Thu 23: **IDP COMPETITION 1**
+- ~~Tue 21: Progress Meeting + **PRESENTATION 1**~~
+- ~~Wed 22: Session~~
+- ~~Thu 23: **IDP COMPETITION 1**~~
+- ~~Mon 27: Session~~
+- Tue 28: Progress Meeting + **PRESENTATION 2**
+- Wed 29: **COMPETITION 2**
 
 
 # Links

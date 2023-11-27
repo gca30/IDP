@@ -41,16 +41,26 @@ int commandsCount = ARRAY_SIZE(commands1);
 char* commands = commands1;
 int commandsIndex = 0;
 
+
+// Each state has a setup and a loop function
+
+// There is a stateSwitch function that controls the transitions between states
+void switchState();
+
 enum State {
-    INACTIVE, // completely stopped
-    INITIAL, // the initial state of the car, in which it needs to move forward until it hits the line
-    LINE_FOLLOWING, // we line follow until one of the back sensor is white
-    CHANGE_DIRECTION, // we change our direction at a junction until the desiredDir is hit
-    DEPOSIT, // depositing of the cube from the starting position
-    PICKUP_DELAY, // delay when the cube is picked up
-    VIBE_CHECK, // checking if there is a cube at the next junction
-    DEPOSIT_2 // second part of depositing (waiting 5 seconds on start)
+    INACTIVE, // The car is completely stopped
+    INITIAL, // The initial state of the car, in which it needs to move forward until it hits the line
+    LINE_FOLLOWING, // The car follows the line until one of the back sensor is white
+    CHANGE_DIRECTION, // The car rotates at a junction until the desiredDirection is hit
+    DEPOSIT, // Depositing of the cube from the starting position
+    PICKUP_DELAY, // Delay when the cube is picked up, the car stops, and LEDs are turned on
+    VIBE_CHECK, // Stopping and checking if there is a cube at the next junction
+    DEPOSIT_2 // Second part of depositing (waiting 5 seconds on start square)
 };
+
+// The setup function is called when the state is entered
+// The loop function is called every loop of the main loop
+void setState(State newState);
 
 enum Direction {
     NORTH = -5,
@@ -95,8 +105,6 @@ enum BlueLEDState {
 
 BlueLEDState blueLEDState = BLED_OFF;
 
-void setState(State newState);
-void switchState();
 State state = INACTIVE;
 TaskState taskState = LINE_FIRST_CUBE;
 CubeState cubeState = NO_CUBE;
