@@ -32,6 +32,10 @@ ooooo\
 ooooo\
 xooox\
 xoxox";
+const int COMMAND_COUNT = 21;
+char commands[] = "mcWcmcNcmWcEmcmcScmEc";
+int commandsFollowed = 0;
+int commandsIndex = 0;
 
 enum State {
     INACTIVE, // completely stopped
@@ -92,7 +96,8 @@ int delayCounter = 400;
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(4);
 Adafruit_DCMotor* motor2 = AFMS.getMotor(1);
-
+          
+void switchState();
 
 
 // ----------------
@@ -202,172 +207,49 @@ void setCubeState(CubeState cb) {
 }
 
 
-
-// ----------------
-// ALGORITHM FOR THE ROBOT
-// ----------------
-
-Direction getDesiredDirection() {
-    /*if(cubeState == NO_CUBE) {
-        switch(positon) {
-        case 1:
+Direction backDirection(int point) {
+    switch(point % 5) {
+        case 1: case 2:
             return EAST;
-            break;
-        case 2:
-            if(directn == WEST)
-                return WEST;
-            else if(directn == EAST)
-                return SOUTH;
-            break; 
+        case 4: case 0:
+            return WEST;
         case 3:
-            if(directn == NORTH) {
-                if(points[10] == 'e') // visited lower right side
-                    return EAST;
-                return WEST;
-            }
-            else if(directn == WEST)
-            break; 
-        case 4:
-            if(directn == NORTH)
-                return EAST;
-            else if(directn == WEST)
-                return WEST;
-            break; 
-        case 5:
-            return WEST;
-            break; 
-        case 6:
-            return EAST;
-            break; 
-        case 7:
-            if(directn == EAST)
-                return EAST;
-            else if(directn == SOUTH)
-                return WEST;
-            break; 
-        case 8:
-            if(directn == EAST)
-                return EAST;
-            else if(directn == NORTH) {
-                if(points[6] == 'e') // checked whole right side
-                    return EAST;
-                if(points[1] = 'e' && points[7] != 'e') // checked only upper right side
-                    return WEST;
-                return NORTH;
-            }
-            else if(directn == SOUTH)
-                return SOUTH;
-            break; 
-        case 9:
-            if(directn == EAST)
-                return EAST;
-            else if(directn == WEST)
-                return NORTH;
-            break; 
-        case 10:
-            return WEST;
-            break; 
-        default:
-            return directon;
-        }
-    }*/ 
-    if(cubeState == NO_CUBE) {
-        switch(positon) {
-        case 1:
-            return EAST;
-        case 2:
-            if(directn == NORTH)
-                return WEST;
-            else if(directn == EAST)
-                return EAST;
-            break;
-        case 3:
-            return EAST;
-        case 4:
-            if(directn == EAST)
-                return EAST;
-            else if(directn == WEST)
-                return SOUTH;
-            break;
-        case 5:
-            return WEST;
-        case 6:
-            return EAST;
-        case 7:
-            if(directn == WEST)
-                return WEST;
-            else if(directn == EAST)
-                return NORTH;
-            break;
-        case 8:
-            if(directn == NORTH)
-                return WEST;
-            else if(directn == EAST)
-                return EAST;
-            else if(directn == WEST)
-                return NORTH;
-            else if(directn == SOUTH)
-                return SOUTH;
-            break;
-        case 9:
-            if(directn == SOUTH)
-                return EAST;
-            else if(directn == WEST)
-                return WEST;
-            break;
-        case 10:
-            return WEST;
-        case 13:
-            return NORTH;
-        case 17:
-        case 19:
-            return NORTH;
-        case 12:
-            return EAST;
-        case 14:
-            return WEST;
-        default:
-            return directn;
-        }
+            return SOUTH;
     }
-    else {
-        switch(positon % 5) {
-          case 1: case 2:
-              return EAST;
-          case 3:
-              return SOUTH;
-          case 4: case 0:
-              return WEST;
-        }
-        return SOUTH;
-    }
-
-    // unreachable 
-    // digitalWrite(errorLEDPin, HIGH);
-    setState(INACTIVE);
-    return NORTH;
 }
 
-CubeState csAtLastJunction = NO_CUBE;
-
-void updateOnJunction() {
-    positon += directn;
-    desiredDir = getDesiredDirection();
-    Serial.print("pos = ");
-    Serial.print(positon);
-    Serial.print(", dir = ");
-    Serial.print(directn);
-    Serial.print(", desired dir = ");
-    Serial.print(desiredDir);
-    if(cubeState != NO_CUBE)
-        Serial.print(", with cube");
-    Serial.println("");
-    if(csAtLastJunction == NO_CUBE)
-        points[positon] = 'e'; // now the position we are in is empty
-    csAtLastJunction = cubeState;
+bool validNext(int point, Direction facing) {
+    if(!(0 < point + facing && point + facing < 11))
+        return false;
+    if((facing == EAST || facing == WEST) && (point-1)/5 != (point+facing-1)/5)
+        return false;
+    return true;
 }
 
+void admitDefeat() {
+    setMovement(R_RIGHT); 
+    while(1);
+}
 
+Direction rightOf(Direction d) {
+    switch(d) {
+        case NORTH: return EAST;
+        case EAST: return SOUTH;
+        case SOUTH: return WEST;
+        case WEST: return NORTH;
+    }
+}
+
+bool hasValidRotJunction(int point, Direction d) {
+    if(d == NORTH)
+        return !(point == 2 || point == 3 || point == 4);
+    if(d == SOUTH)
+        return !(point == 6 || point == 7 || point == 9 || point == 10);
+    if(d == EAST)
+        return !(point == 5 || point == 10);
+    if(d == WEST)
+        return !(point == 1 || point == 6);
+}
 
 // ----------------
 // SPECIFIC STATE FUNCTIONS
@@ -397,20 +279,9 @@ void lineFollowingLoop() {
     if(axleRight == 0 && axleLeft == 0)
         outOfJunction = true;
     if(outOfJunction && (axleRight == 1 || axleLeft == 1)) {
-        updateOnJunction();
-        if(0 < positon + directn && positon + directn < 10 && (positon-1)/5 == (positon+directn-1)/5 && points[positon + directn] != 'e' && cubeState == NO_CUBE) {
-            setState(VIBE_CHECK);
-            return;
-        }
-        if(positon == 13 && directn == SOUTH) {
-            setState(DEPOSIT);
-            return;
-        }
-        if(cubeState == CUBE_NEXT_JUNCTION) {
-          setState(PICKUP_DELAY);
-          return;
-        }
-        setState(CHANGE_DIRECTION);
+        //updateOnJunction();
+        positon += directn;
+        switchState();
     }
 }
 
@@ -420,22 +291,21 @@ int rotationIterations;
 
 void changeDirectionSetup() {
     if(directn == desiredDir) {
-        setState(LINE_FOLLOWING);
+        switchState();
         return;
     }
     outOfJunction = false;
     rotationIterations = directn == -desiredDir ? 2 : 1;
-    if(
-        (directn == NORTH && desiredDir == WEST) ||
-        (directn == WEST && desiredDir == SOUTH) ||
-        (directn == SOUTH && desiredDir == EAST) ||
-        (directn == EAST && desiredDir == NORTH)
-    )
+    if(desiredDir == -rightOf(directn))
         setMovement(R_LEFT);
-    else if(directn == -desiredDir && (positon-1)%5 > 2) // special case when turing at point 6
-        setMovement(R_LEFT);
+    else if(directn == -desiredDir) {
+        if(hasValidRotJunction(positon, rightOf(directn)))
+            setMovement(R_RIGHT);
+        else
+            setMovement(R_LEFT);
+    }
     else
-        setMovement(R_RIGHT);
+      setMovement(R_RIGHT);
 }
 
 void changeDirectionLoop() {
@@ -454,10 +324,7 @@ void changeDirectionLoop() {
         return;
     }
     directn = desiredDir;
-    if(0 < positon + directn && positon + directn <= 10 && points[positon + directn] != 'e' && (positon-1)/5 == (positon+directn-1)/5 && cubeState == NO_CUBE)
-        setState(VIBE_CHECK);
-    else
-        setState(LINE_FOLLOWING);
+    switchState();
 }
 
 // VIBE CHECK DELAY
@@ -481,7 +348,7 @@ void vibeCheckLoop() {
     }
     else
         points[positon + directn] = 'e';
-    setState(CHANGE_DIRECTION);
+    switchState();
 }
 
 // INITIAL STATE
@@ -491,6 +358,7 @@ int initialStateCounter = 100;
 void initialSetup() {
   positon = 18;
   directn = NORTH;
+  commandsIndex = 0;
   if(initialStateCounter == 0) {
       digitalWrite(blueLEDPin, HIGH);
       initialStateCounter = 400;
@@ -526,11 +394,11 @@ void pickupDelaySetup() {
 }
 
 void pickupDelayLoop() {
-    if(delayCounter == 0) {
-        setState(CHANGE_DIRECTION);
+    if(delayCounter > 0) {
+        delayCounter--;
         return;
     }
-    delayCounter--;
+    switchState();
 }
 
 // INACTIVE STATE
@@ -545,11 +413,12 @@ void inactiveLoop() {
 
 // DEPOSIT STATE
 
-const int depositRotate = 300;//fine tuning. Initially:353
-const int depositForward = 1200;
-const int depositBackward = 500;
-const int depositSmallForward = 200;
-const int depositSmallBackward = 150;
+const int depositRotateM = 240; //fine tuning. Initially:353
+const int depositRotateNM = 265;
+const int depositForward = 850;
+const int depositBackward = 450;
+const int depositSmallForward = 160;
+const int depositSmallBackward = 100;
 int depositProgress = 0;
 int depositTimer = 0;
 CubeState initialCubeState = NO_CUBE;
@@ -587,7 +456,7 @@ void depositLoop() {
             break;
         case 1:
             setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
-            depositTimer = depositRotate;
+            depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateNM;
             break;
         case 2:
             setMovement(M_FORWARD);
@@ -605,7 +474,7 @@ void depositLoop() {
             break;
         case 6:
             setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
-            depositTimer = depositRotate;
+            depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateNM;
             break;
         case 7:
             taskState = taskState + 1;
@@ -625,15 +494,106 @@ void depositLoop() {
 // STATE MANAGEMENT
 // ----------------
 
+// STATE SWITCH
+// for the 4 states that will be found in the board
+void switchState() {
+    if(cubeState == NO_CUBE) {
+        if(commandsIndex < commandsFollowed) {
+            if(commands[commandsIndex] == 'c')
+                commandsIndex++;
+        }
+        else commandsFollowed = commandsIndex;
+        if(commandsIndex == COMMAND_COUNT)
+            admitDefeat();
+        commandsIndex++;
+        switch(commands[commandsIndex-1]) {
+            case 'm':
+                setState(LINE_FOLLOWING);
+                return;
+            case 'c':
+                setState(VIBE_CHECK);
+                return;
+            case 'W':
+                desiredDir = WEST;
+                setState(CHANGE_DIRECTION);
+                return;
+            case 'E':
+                desiredDir = EAST;
+                setState(CHANGE_DIRECTION);
+                return;
+            case 'N':
+                desiredDir = NORTH;
+                setState(CHANGE_DIRECTION);
+                return;
+            case 'S':
+                desiredDir = SOUTH;
+                setState(CHANGE_DIRECTION);
+                return;
+        }
+    }
+    else if(cubeState == CUBE_NEXT_JUNCTION) {
+        if(state == VIBE_CHECK)
+            setState(LINE_FOLLOWING);
+        else if(state == LINE_FOLLOWING)
+            setState(PICKUP_DELAY);
+        else admitDefeat(); /* impossible */ 
+    }
+    else {
+        if(state == LINE_FOLLOWING && positon == 13)
+            setState(DEPOSIT);
+        else if(state == PICKUP_DELAY || state == LINE_FOLLOWING) {
+            desiredDir = backDirection(positon);
+            if(desiredDir == directn)
+                setState(LINE_FOLLOWING);
+            else
+                setState(CHANGE_DIRECTION);
+        }
+        else setState(LINE_FOLLOWING);
+    }
+
+    /*
+    if(state == LINE_FOLLOWING) {
+        if(cubeState == CUBE_NEXT_JUNCTION) {
+            setState(PICKUP_DELAY);
+            return;
+        }
+        if(positon == 13 && directn == SOUTH) {
+            setState(DEPOSIT);
+            return;
+        }
+        if(validNext(positon, directn) && points[positon + directn] != 'e' && cubeState == NO_CUBE) {
+            setState(VIBE_CHECK);
+            return;
+        }
+        setState(CHANGE_DIRECTION);
+    }
+    else if(state == CHANGE_DIRECTION) {
+        if(validNext(positon, directn) && points[positon + directn] != 'e' &&  && cubeState == NO_CUBE)
+            setState(VIBE_CHECK);
+        else
+            setState(LINE_FOLLOWING);
+    }
+    else if(state == VIBE_CHECK) {
+        if(cubeState == CUBE_NEXT_JUNCTION);
+            setState(LINE_FOLLOWING);
+        else
+            setState(CHANGE_DIRECTION);
+    }
+    else if(state == PICKUP_DELAY) {
+        desiredDir = backDirection(positon);
+        setState(CHANGE_DIRECTION);
+    } */
+}
+
 // STATE SETUP
 void setState(State newState) {
-    if(newState == state)
-        return;
-    prevState = state;
-    state = newState;
+    if(newState != state) {
+        prevState = state;
+        state = newState;
+    }
     // do setup for the new state
     if(state != LINE_FOLLOWING && state != DEPOSIT)
-      digitalWrite(blueLEDPin, LOW);
+        digitalWrite(blueLEDPin, LOW);
     switch(state) {
         case LINE_FOLLOWING:
             lineFollowingSetup();
