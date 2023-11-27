@@ -44,7 +44,8 @@ enum State {
     CHANGE_DIRECTION, // we change our direction at a junction until the desiredDir is hit
     DEPOSIT, // depositing of the cube from the starting position
     PICKUP_DELAY, // delay when the cube is picked up
-    VIBE_CHECK
+    VIBE_CHECK,
+    DEPOSIT_2
 };
 
 enum Direction {
@@ -75,8 +76,10 @@ enum Movement {
     R_RIGHT,
     M_FORWARD,
     M_BACKWARD,
-    PIVOT_RIGHT,
-    PIVOT_LEFT
+    PIVOTB_RIGHT,
+    PIVOTB_LEFT,
+    PIVOTF_RIGHT,
+    PIVOTF_LEFT
 };
 
 void setState(State newState);
@@ -112,26 +115,22 @@ static inline void setMovement(Movement m) {
             motor2->run(RELEASE);
             break;
         case R_LEFT:
-
             motor1->setSpeed(200);
             motor2->setSpeed(200);
             motor1->run(BACKWARD);
             motor2->run(FORWARD);
-
             break;
         case R_RIGHT:
             motor1->setSpeed(200);
             motor2->setSpeed(200);
             motor1->run(FORWARD);
             motor2->run(BACKWARD);
-
             break;
         case M_FORWARD:
             motor1->setSpeed(250);
             motor2->setSpeed(250);
             motor1->run(FORWARD);
             motor2->run(FORWARD);
-
             break;
         case M_BACKWARD:
             motor1->setSpeed(250);
@@ -139,19 +138,30 @@ static inline void setMovement(Movement m) {
             motor1->run(BACKWARD);
             motor2->run(BACKWARD);
             break;
-        case PIVOT_RIGHT:
+        case PIVOTB_RIGHT:
             motor1->setSpeed(200);
             motor2->setSpeed(200);
             motor1->run(RELEASE);
             motor2->run(BACKWARD);
             break;
-        case PIVOT_LEFT:
+        case PIVOTB_LEFT:
             motor1->setSpeed(200);
             motor2->setSpeed(200);
             motor1->run(BACKWARD);
             motor2->run(RELEASE);
             break;
-        
+        case PIVOTF_RIGHT:
+            motor1->setSpeed(200);
+            motor2->setSpeed(200);
+            motor1->run(RELEASE);
+            motor2->run(FORWARD);
+            break;
+        case PIVOTF_LEFT:
+            motor1->setSpeed(200);
+            motor2->setSpeed(200);
+            motor1->run(FORWARD);
+            motor2->run(RELEASE);
+            break;
     }
 }
 
@@ -356,31 +366,23 @@ void vibeCheckLoop() {
 int initialStateCounter = 100;
 
 void initialSetup() {
-  positon = 18;
-  directn = NORTH;
-  commandsIndex = 0;
-  if(initialStateCounter == 0) {
-      digitalWrite(blueLEDPin, HIGH);
-      initialStateCounter = 400;
-  }
-  else
-      initialStateCounter = 13;
-  setMovement(STOPPED);
-
+    positon = 18;
+    directn = NORTH;
+    commandsIndex = 0;
+    initialStateCounter = 13;
+    setMovement(STOPPED);
 }
 
 void initialLoop() {
     // initial wait time to get ultrasonic sensor median readings
     if(initialStateCounter > 0) {
         initialStateCounter--;
-        if(initialStateCounter == 0) {
-            digitalWrite(blueLEDPin, HIGH);
+        if(initialStateCounter == 0)
             setMovement(M_FORWARD);
-        }
         return;
     }
     // move forward until we hit the line
-    if(frontLeft == HIGH && frontRight == HIGH)
+    if(frontLeft == HIGH || frontRight == HIGH)
         setState(LINE_FOLLOWING);
 }
 
@@ -408,7 +410,7 @@ void inactiveSetup() {
 }
 
 void inactiveLoop() {
-  ;;
+    ;;
 }
 
 // DEPOSIT STATE
@@ -418,10 +420,24 @@ const int depositRotateNM = 265;
 const int depositForward = 850;
 const int depositBackward = 450;
 const int depositSmallForward = 160;
-const int depositSmallBackward = 100;
+const int depositSmallBackward = 150;
+const int depositFinalBack = 200;
+const int depositLineFollowingHell = 200;
 int depositProgress = 0;
 int depositTimer = 0;
 CubeState initialCubeState = NO_CUBE;
+// NO
+// move forward by a bit
+// rotate ~90 degress
+// move forward a hardcoded amount
+// move back a hardcoded amount
+// move back until one of the back sensors is white
+// pivot until both are white
+// move backward by a bit
+// rotate ~90 degrees
+// move forward until one of the sensors is white
+// pivot until both are white
+// go back by a a bit
 
 void depositSetup() {
     depositProgress = 0;
@@ -429,65 +445,90 @@ void depositSetup() {
 }
 
 void depositLoop() {
-    Serial.println(depositProgress);
-    if(depositProgress != 5 && depositTimer > 0) {
+    if(depositTimer > 0) {
         depositTimer--;
         return;
     }
-    if(depositProgress == 5) {
-        if(axleRight == HIGH && axleRight == HIGH) {
-            depositProgress++;
-            depositTimer = 200;
-            setMovement(M_BACKWARD);
-            return;
-        }
-        else if(axleRight == HIGH || axleLeft == HIGH) {
-            if(axleRight == HIGH)
-                setMovement(PIVOT_LEFT);
-            else
-                setMovement(PIVOT_RIGHT);
-        }
-        return;
-    }
-    switch(depositProgress) {
-        case 0:
+    switch(depositProgress+1) {
+        case 1:
             setMovement(M_FORWARD);
             depositTimer = depositSmallForward;
             break;
-        case 1:
+        case 2:
             setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
             depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateNM;
             break;
-        case 2:
+        case 3:
             setMovement(M_FORWARD);
             depositTimer = depositForward;
             break;
-        case 3:
+        case 4:
             setMovement(M_BACKWARD);
             setCubeState(NO_CUBE);
             depositTimer = depositBackward;
             break;
-        case 4:
-            //setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
-            //depositTimer = depositRotate;
+        case 5:
             setMovement(M_BACKWARD);
+            depositTimer = 0;
             break;
         case 6:
-            setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
-            depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateNM;
-            break;
+            if(axleRight == HIGH && axleLeft == HIGH) {
+                depositProgress++;
+                setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
+                depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateM;
+                return;
+            }
+            else if(axleRight == HIGH || axleLeft == HIGH) {
+                if(axleRight == HIGH)
+                    setMovement(PIVOTB_LEFT);
+                else
+                    setMovement(PIVOTB_RIGHT);
+            }
+            return;
         case 7:
+            directn = NORTH;
+            positon = initialCubeState == MAGNETIC ? 17 : 19;
+            setState(LINE_FOLLOWING);
+            break;
+    }
+    depositProgress++;
+}
+
+// DEPOSIT_2
+
+void deposit2Setup() {
+    depositProgress = 0;
+    depositTimer = 0;
+    setMovement(STOPPED);
+}
+
+
+void deposit2Loop() {
+    if(depositTimer > 0) {
+        depositTimer--;
+        return;
+    }
+    depositProgress++;
+    switch(depositProgress) {
+        case 1:
+            setMovement(M_BACKWARD);
+            depositTimer = depositFinalBack;
+            break;
+        case 2:
+            setMovement(STOPPED);
+            digitalWrite(blueLEDPin, HIGH);
+            depositTimer = 400;
+            break;
+        case 3:
             taskState = taskState + 1;
             if(taskState == SCANNING_FIRST_CUBE) {
                 setState(INACTIVE);
                 digitalWrite(blueLEDPin, HIGH);
             }
-            else {
+            else
                 setState(INITIAL);
-            }
             break;
     }
-    depositProgress++;
 }
 
 // ----------------
@@ -498,11 +539,33 @@ void depositLoop() {
 // for the 4 states that will be found in the board
 void switchState() {
     if(cubeState == NO_CUBE) {
-        if(commandsIndex < commandsFollowed) {
-            if(commands[commandsIndex] == 'c')
-                commandsIndex++;
+        if(state == LINE_FOLLOWING && positon == 12) {
+            desiredDir = EAST;
+            setState(CHANGE_DIRECTION);
+            return;
         }
-        else commandsFollowed = commandsIndex;
+        if(state == LINE_FOLLOWING && positon == 14) {
+            desiredDir = WEST;
+            setState(CHANGE_DIRECTION);
+            return;
+        }
+        if(state == CHANGE_DIRECTION && (positon == 12 || positon == 14)) {
+            setState(LINE_FOLLOWING);
+            return;
+        }
+        if(state == LINE_FOLLOWING && positon == 13 && (directn == EAST || directn == WEST)) {
+            desiredDir = NORTH;
+            setState(CHANGE_DIRECTION);
+            return;
+        }
+        if(state == CHANGE_DIRECTION && positon == 13 && directn == NORTH) {
+            setState(DEPOSIT_2);
+            return;
+        }
+        if(commands[commandsIndex] == 'c' && points[positon + directn] == 'e')
+            commandsIndex++;
+        else 
+            commandsFollowed = commandsIndex;
         if(commandsIndex == COMMAND_COUNT)
             admitDefeat();
         commandsIndex++;
@@ -604,6 +667,9 @@ void setState(State newState) {
         case DEPOSIT:
             depositSetup();
             break;
+        case DEPOSIT_2:
+            deposit2Setup();
+            break;
         case INACTIVE:
             inactiveSetup();
             break;
@@ -648,6 +714,9 @@ void statesLoop() {
             break;
         case DEPOSIT:
             depositLoop();
+            break;
+        case DEPOSIT_2:
+            deposit2Loop();
             break;
         case INITIAL:
             initialLoop();
