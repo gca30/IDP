@@ -27,14 +27,18 @@ int button = LOW, prevButton = LOW;
 // const int rotatetime = 1250; ~ 90 degrees
 
 // STATE
-char points[] = "x\
+char pointsMatrix[] = "\
+o---o\
 ooooo\
 ooooo\
 xooox\
 xoxox";
-const int COMMAND_COUNT = 21;
-char commands[] = "mcWcmcNcmWcEmcmcScmEc";
-int commandsFollowed = 0;
+char* points = &pointsMatrix[4];
+#define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]) - 1)
+char commands1[] = "mcWcmcNcmWcEmcmcScmEc";
+char commands2[] = "mWmmNmEqqqqNmEqSmmEmmSm";
+int commandsCount = ARRAY_SIZE(commands1);
+char* commands = commands1;
 int commandsIndex = 0;
 
 enum State {
@@ -44,15 +48,16 @@ enum State {
     CHANGE_DIRECTION, // we change our direction at a junction until the desiredDir is hit
     DEPOSIT, // depositing of the cube from the starting position
     PICKUP_DELAY, // delay when the cube is picked up
-    VIBE_CHECK,
-    DEPOSIT_2
+    VIBE_CHECK, // checking if there is a cube at the next junction
+    DEPOSIT_2 // second part of depositing (waiting 5 seconds on start)
 };
 
 enum Direction {
     NORTH = -5,
     SOUTH = 5,
     WEST = -1,
-    EAST = 1
+    EAST = 1,
+    INVALID_DIR = 0
 };
 
 enum CubeState {
@@ -82,26 +87,31 @@ enum Movement {
     PIVOTF_LEFT
 };
 
+enum BlueLEDState {
+    BLED_OFF,
+    BLED_ON,
+    BLED_BLINKING,
+};
+
+BlueLEDState blueLEDState = BLED_OFF;
+
 void setState(State newState);
+void switchState();
 State state = INACTIVE;
 TaskState taskState = LINE_FIRST_CUBE;
 CubeState cubeState = NO_CUBE;
 
-
 int positon = 18;
-Direction directn = NORTH;
-bool backwards = false;
+Direction directon = NORTH;
 
 Direction desiredDir = NORTH;
 State prevState = INITIAL;
-int delayCounter = 400;
+const int fiveSeconds = 1000;
+bool shouldBlinkBlueLED = false;
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(4);
 Adafruit_DCMotor* motor2 = AFMS.getMotor(1);
-          
-void switchState();
-
 
 // ----------------
 // HELPER FUNCTIONS
@@ -165,10 +175,6 @@ static inline void setMovement(Movement m) {
     }
 }
 
-// m1v + m2v = 400u
- 
-
-
 #define MEDIAN_SIZE 13
 float getUltrasonicDistance() {
     static float dists[MEDIAN_SIZE];
@@ -216,7 +222,6 @@ void setCubeState(CubeState cb) {
     }
 }
 
-
 Direction backDirection(int point) {
     switch(point % 5) {
         case 1: case 2:
@@ -250,15 +255,31 @@ Direction rightOf(Direction d) {
     }
 }
 
+Direction directionFromChar(char c) {
+    switch(c) {
+        case 'N': return NORTH;
+        case 'E': return EAST;
+        case 'S': return SOUTH;
+        case 'W': return WEST;
+        default:  return INVALID_DIR;
+    }
+}
+
+Direction flipVertically(Direction d) {
+    switch(d) {
+        case NORTH: return SOUTH;
+        case SOUTH: return NORTH;
+        default: return d;
+    }
+}
+
 bool hasValidRotJunction(int point, Direction d) {
-    if(d == NORTH)
-        return !(point == 2 || point == 3 || point == 4);
-    if(d == SOUTH)
-        return !(point == 6 || point == 7 || point == 9 || point == 10);
-    if(d == EAST)
-        return !(point == 5 || point == 10);
-    if(d == WEST)
-        return !(point == 1 || point == 6);
+    switch(d) {
+        case NORTH: return !(point == 2 || point == 3 || point == 4);
+        case EAST:  return !(point == 6 || point == 7 || point == 9 || point == 10);
+        case SOUTH: return !(point == 5 || point == 10);
+        case WEST:  return !(point == 1 || point == 6);
+    }
 }
 
 // ----------------
@@ -266,12 +287,13 @@ bool hasValidRotJunction(int point, Direction d) {
 // ----------------
 
 // LINE FOLLOWING STATE
-
-bool shouldChangeState = false;
 bool outOfJunction;
+bool reachedTheEnd;
 
 void lineFollowingSetup() {
+    blueLEDState = BLED_BLINKING;
     outOfJunction = false;
+    reachedTheEnd = false;
 }
 
 void lineFollowingLoop() {
@@ -282,34 +304,36 @@ void lineFollowingLoop() {
         setMovement(R_LEFT);
     else if (frontLeft == 1 && frontRight == 1)
         setMovement(M_FORWARD);
-    else if(frontLeft == 0 && frontRight == 0)
+    else if(frontLeft == 0 && frontRight == 0) {
+        reachedTheEnd = true;
         setMovement(M_FORWARD);
+    }
 
     // we can start in a junction and we must first ignore it
     if(axleRight == 0 && axleLeft == 0)
         outOfJunction = true;
     if(outOfJunction && (axleRight == 1 || axleLeft == 1)) {
         //updateOnJunction();
-        positon += directn;
+        positon += directon;
         switchState();
     }
 }
 
 // CHANGE DIRECTION STATE
-
 int rotationIterations;
 
 void changeDirectionSetup() {
-    if(directn == desiredDir) {
+    if(directon == desiredDir) {
         switchState();
         return;
     }
+    blueLEDState = BLED_OFF;
     outOfJunction = false;
-    rotationIterations = directn == -desiredDir ? 2 : 1;
-    if(desiredDir == -rightOf(directn))
+    rotationIterations = directon == -desiredDir ? 2 : 1;
+    if(desiredDir == -rightOf(directon))
         setMovement(R_LEFT);
-    else if(directn == -desiredDir) {
-        if(hasValidRotJunction(positon, rightOf(directn)))
+    else if(directon == -desiredDir) {
+        if(hasValidRotJunction(positon, rightOf(directon)))
             setMovement(R_RIGHT);
         else
             setMovement(R_LEFT);
@@ -333,17 +357,17 @@ void changeDirectionLoop() {
         outOfJunction = false;  
         return;
     }
-    directn = desiredDir;
+    directon = desiredDir;
     switchState();
 }
 
 // VIBE CHECK DELAY
-
 int vibeCheckDelay;
 
 void vibeCheckSetup() {
+    blueLEDState = BLED_OFF;
     setMovement(STOPPED);
-    vibeCheckDelay = 50;
+    vibeCheckDelay = 70;
 }
 
 void vibeCheckLoop() {
@@ -357,17 +381,17 @@ void vibeCheckLoop() {
         Serial.println("CUBE DETECTED HERE");
     }
     else
-        points[positon + directn] = 'e';
+        points[positon + directon] = 'e';
     switchState();
 }
 
 // INITIAL STATE
-
 int initialStateCounter = 100;
 
 void initialSetup() {
+    blueLEDState = BLED_OFF;
     positon = 18;
-    directn = NORTH;
+    directon = NORTH;
     commandsIndex = 0;
     initialStateCounter = 13;
     setMovement(STOPPED);
@@ -388,11 +412,13 @@ void initialLoop() {
 
 
 // DELAY STATE
+int delayCounter;
 
 void pickupDelaySetup() {
+    blueLEDState = BLED_OFF;
     setMovement(STOPPED);
     setCubeState(magnetic ? MAGNETIC : NOT_MAGNETIC);
-    delayCounter = 400;
+    delayCounter = fiveSeconds;
 }
 
 void pickupDelayLoop() {
@@ -404,8 +430,8 @@ void pickupDelayLoop() {
 }
 
 // INACTIVE STATE
-
 void inactiveSetup() {
+    blueLEDState = BLED_ON;
     setMovement(STOPPED);
 }
 
@@ -414,30 +440,16 @@ void inactiveLoop() {
 }
 
 // DEPOSIT STATE
-
-const int depositRotateM = 240; //fine tuning. Initially:353
+const int depositSmallForward = 160;
+const int depositRotateM = 240; 
 const int depositRotateNM = 265;
 const int depositForward = 850;
 const int depositBackward = 450;
-const int depositSmallForward = 160;
 const int depositSmallBackward = 150;
 const int depositFinalBack = 200;
-const int depositLineFollowingHell = 200;
 int depositProgress = 0;
 int depositTimer = 0;
 CubeState initialCubeState = NO_CUBE;
-// NO
-// move forward by a bit
-// rotate ~90 degress
-// move forward a hardcoded amount
-// move back a hardcoded amount
-// move back until one of the back sensors is white
-// pivot until both are white
-// move backward by a bit
-// rotate ~90 degrees
-// move forward until one of the sensors is white
-// pivot until both are white
-// go back by a a bit
 
 void depositSetup() {
     depositProgress = 0;
@@ -451,27 +463,38 @@ void depositLoop() {
     }
     switch(depositProgress+1) {
         case 1:
+            blueLEDState = BLED_BLINKING;
             setMovement(M_FORWARD);
             depositTimer = depositSmallForward;
             break;
         case 2:
+            blueLEDState = BLED_OFF;
             setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
             depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateNM;
             break;
         case 3:
+            blueLEDState = BLED_BLINKING;
             setMovement(M_FORWARD);
             depositTimer = depositForward;
             break;
         case 4:
+            blueLEDState = BLED_ON;
+            setMovement(STOPPED);
+            depositTimer = 200; // CHECK LATER
+            break;
+        case 5:
+            blueLEDState = BLED_BLINKING;
             setMovement(M_BACKWARD);
             setCubeState(NO_CUBE);
             depositTimer = depositBackward;
             break;
-        case 5:
+        case 6:
+            blueLEDState = BLED_BLINKING;
             setMovement(M_BACKWARD);
             depositTimer = 0;
             break;
-        case 6:
+        case 7:
+            blueLEDState = BLED_OFF;
             if(axleRight == HIGH && axleLeft == HIGH) {
                 depositProgress++;
                 setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
@@ -486,7 +509,7 @@ void depositLoop() {
             }
             return;
         case 7:
-            directn = NORTH;
+            directon = NORTH;
             positon = initialCubeState == MAGNETIC ? 17 : 19;
             setState(LINE_FOLLOWING);
             break;
@@ -495,13 +518,11 @@ void depositLoop() {
 }
 
 // DEPOSIT_2
-
 void deposit2Setup() {
     depositProgress = 0;
     depositTimer = 0;
     setMovement(STOPPED);
 }
-
 
 void deposit2Loop() {
     if(depositTimer > 0) {
@@ -511,22 +532,27 @@ void deposit2Loop() {
     depositProgress++;
     switch(depositProgress) {
         case 1:
+            blueLEDState = BLED_BLINKING;
             setMovement(M_BACKWARD);
             depositTimer = depositFinalBack;
             break;
         case 2:
+            blueLEDState = BLED_ON;
             setMovement(STOPPED);
             digitalWrite(blueLEDPin, HIGH);
-            depositTimer = 400;
+            depositTimer = fiveSeconds;
             break;
         case 3:
             taskState = taskState + 1;
-            if(taskState == SCANNING_FIRST_CUBE) {
+            if(taskState == DONE) {
                 setState(INACTIVE);
-                digitalWrite(blueLEDPin, HIGH);
+                return;
             }
-            else
-                setState(INITIAL);
+            if(taskState == SCANNING_FIRST_CUBE) {
+                commandsCount = ARRAY_SIZE(commands2);
+                commands = commands2;
+            }
+            setState(INITIAL);
             break;
     }
 }
@@ -537,8 +563,10 @@ void deposit2Loop() {
 
 // STATE SWITCH
 // for the 4 states that will be found in the board
+
 void switchState() {
     if(cubeState == NO_CUBE) {
+        // special cases
         if(state == LINE_FOLLOWING && positon == 12) {
             desiredDir = EAST;
             setState(CHANGE_DIRECTION);
@@ -553,20 +581,19 @@ void switchState() {
             setState(LINE_FOLLOWING);
             return;
         }
-        if(state == LINE_FOLLOWING && positon == 13 && (directn == EAST || directn == WEST)) {
+        if(state == LINE_FOLLOWING && positon == 13 && (directon == EAST || directon == WEST)) {
             desiredDir = NORTH;
             setState(CHANGE_DIRECTION);
             return;
         }
-        if(state == CHANGE_DIRECTION && positon == 13 && directn == NORTH) {
+        if(state == CHANGE_DIRECTION && positon == 13 && directon == NORTH) {
             setState(DEPOSIT_2);
             return;
         }
-        if(commands[commandsIndex] == 'c' && points[positon + directn] == 'e')
+        // following commands
+        if(commands[commandsIndex] == 'c' && points[positon + directon] == 'e')
             commandsIndex++;
-        else 
-            commandsFollowed = commandsIndex;
-        if(commandsIndex == COMMAND_COUNT)
+        if(commandsIndex == commandsCount)
             admitDefeat();
         commandsIndex++;
         switch(commands[commandsIndex-1]) {
@@ -577,19 +604,12 @@ void switchState() {
                 setState(VIBE_CHECK);
                 return;
             case 'W':
-                desiredDir = WEST;
-                setState(CHANGE_DIRECTION);
-                return;
             case 'E':
-                desiredDir = EAST;
-                setState(CHANGE_DIRECTION);
-                return;
             case 'N':
-                desiredDir = NORTH;
-                setState(CHANGE_DIRECTION);
-                return;
             case 'S':
-                desiredDir = SOUTH;
+                desiredDir = directionFromChar(commands[commandsIndex-1]);
+                if(taskState == LINE_SECOND_CUBE)
+                    desiredDir = flipVertically(desiredDir);
                 setState(CHANGE_DIRECTION);
                 return;
         }
@@ -606,46 +626,13 @@ void switchState() {
             setState(DEPOSIT);
         else if(state == PICKUP_DELAY || state == LINE_FOLLOWING) {
             desiredDir = backDirection(positon);
-            if(desiredDir == directn)
+            if(desiredDir == directon)
                 setState(LINE_FOLLOWING);
             else
                 setState(CHANGE_DIRECTION);
         }
         else setState(LINE_FOLLOWING);
     }
-
-    /*
-    if(state == LINE_FOLLOWING) {
-        if(cubeState == CUBE_NEXT_JUNCTION) {
-            setState(PICKUP_DELAY);
-            return;
-        }
-        if(positon == 13 && directn == SOUTH) {
-            setState(DEPOSIT);
-            return;
-        }
-        if(validNext(positon, directn) && points[positon + directn] != 'e' && cubeState == NO_CUBE) {
-            setState(VIBE_CHECK);
-            return;
-        }
-        setState(CHANGE_DIRECTION);
-    }
-    else if(state == CHANGE_DIRECTION) {
-        if(validNext(positon, directn) && points[positon + directn] != 'e' &&  && cubeState == NO_CUBE)
-            setState(VIBE_CHECK);
-        else
-            setState(LINE_FOLLOWING);
-    }
-    else if(state == VIBE_CHECK) {
-        if(cubeState == CUBE_NEXT_JUNCTION);
-            setState(LINE_FOLLOWING);
-        else
-            setState(CHANGE_DIRECTION);
-    }
-    else if(state == PICKUP_DELAY) {
-        desiredDir = backDirection(positon);
-        setState(CHANGE_DIRECTION);
-    } */
 }
 
 // STATE SETUP
@@ -655,8 +642,6 @@ void setState(State newState) {
         state = newState;
     }
     // do setup for the new state
-    if(state != LINE_FOLLOWING && state != DEPOSIT)
-        digitalWrite(blueLEDPin, LOW);
     switch(state) {
         case LINE_FOLLOWING:
             lineFollowingSetup();
@@ -695,7 +680,7 @@ void stateSensors() {
         setState(state == INACTIVE ? prevState : INACTIVE);
 
     // Ultrasonic sensor changes LED state
-    if(state == LINE_FOLLOWING || state == DEPOSIT) {
+    if(blueLEDState == BLED_BLINKING) {
         if(blueLEDTimer == 0) {
             blueLEDTimer = 50;
             digitalWrite(blueLEDPin, HIGH);
@@ -704,6 +689,10 @@ void stateSensors() {
             digitalWrite(blueLEDPin, LOW);
         blueLEDTimer--;
     }
+    else if(blueLEDState == BLED_ON)
+        digitalWrite(blueLEDPin, HIGH);
+    else if(blueLEDState == BLED_OFF)
+        digitalWrite(blueLEDPin, LOW);
 }
 
 void statesLoop() {
@@ -748,10 +737,7 @@ void setup() {
         while (1);
     }
     Serial.println("Begin");
-    motor1->setSpeed(150);
-    motor1->run(RELEASE);
-    motor2->setSpeed(150);
-    motor2->run(RELEASE);
+    setMovement(STOPPED);
       
     pinMode(frontLeftLSP, INPUT); 
     pinMode(frontRightLSP, INPUT);
@@ -763,12 +749,6 @@ void setup() {
     pinMode(redLEDPin, OUTPUT);
     pinMode(greenLEDPin, OUTPUT);
     pinMode(blueLEDPin, OUTPUT);
-    // pinMode(errorLEDPin, INPUT);
-    // pinMode(tofPin, INPUT);
-
-    //setMovement(R_RIGHT);
-    //delay(10000); // 10000 ms / 450 deg / 5 ticks/s * 90 deg = 
-    //setMovement(STOPPED);
 }
 
 void loop() {
@@ -782,7 +762,7 @@ void loop() {
     axleRight = digitalRead(axleRightLSP);
     ultrasonic = getUltrasonicDistance();
     magnetic = digitalRead(magneticSensorPin);
-    //Serial.println(ultrasonic);
+    
     stateSensors();
     statesLoop();      
     delay(5);
