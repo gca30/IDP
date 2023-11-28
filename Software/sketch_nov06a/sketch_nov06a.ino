@@ -1,4 +1,5 @@
 #include <Adafruit_MotorShield.h>
+#include <DFRobot_VL53L0X.h>
 
 // ----------------
 // VARIABLES AND CONSTANTS
@@ -19,6 +20,7 @@ const int magneticSensorPin = 5;
 // SENSOR VALUES
 int frontLeft, frontRight, axleLeft, axleRight;
 float ultrasonic = 500.0, prevUltrasonic;
+float tof;
 int magnetic = LOW;
 int button = LOW, prevButton = LOW;
 
@@ -36,7 +38,7 @@ xoxox";
 char* points = &pointsMatrix[4];
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]) - 1)
 char commands1[] = "mcWcmcNcmWcEmcmcScmEc";
-char commands2[] = "mWmmNmEqqqqNmEqSmmEmmSm";
+char commands2[] = "mWmmNmEqqqqSmWmmSm";
 int commandsCount = ARRAY_SIZE(commands1);
 char* commands = commands1;
 int commandsIndex = 0;
@@ -55,7 +57,8 @@ enum State {
     DEPOSIT, // Depositing of the cube from the starting position
     PICKUP_DELAY, // Delay when the cube is picked up, the car stops, and LEDs are turned on
     VIBE_CHECK, // Stopping and checking if there is a cube at the next junction
-    DEPOSIT_2 // Second part of depositing (waiting 5 seconds on start square)
+    DEPOSIT_2, // Second part of depositing (waiting 5 seconds on start square)
+    WALKING_HERE // Line following while looking for a block on the side
 };
 
 // The setup function is called when the state is entered
@@ -120,6 +123,7 @@ bool shouldBlinkBlueLED = false;
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
 Adafruit_DCMotor* motor1 = AFMS.getMotor(4);
 Adafruit_DCMotor* motor2 = AFMS.getMotor(1);
+DFRobot_VL53L0X tofSensor;
 
 // ----------------
 // HELPER FUNCTIONS
@@ -209,6 +213,33 @@ float getUltrasonicDistance() {
 }
 #undef MEDIAN_SIZE
 
+
+#define MEDIAN_SIZE 13
+float time_of_flight() {
+    static float dists[MEDIAN_SIZE];
+    static float sorted[MEDIAN_SIZE];
+    float flight =  sensor.getDistance();
+    
+    for(int i = 0; i < MEDIAN_SIZE-1; i++)
+        dists[i] = dists[i+1];
+    dists[MEDIAN_SIZE-1] = flight;
+    for(int i = 0; i < MEDIAN_SIZE; i++)
+        sorted[i] = dists[i];
+    
+    for(int i = 1; i < MEDIAN_SIZE; i++) {
+        int j = i;
+        while(j > 0 && sorted[j-1] > sorted[j]) {
+            float temp = sorted[j];
+            sorted[j] = sorted[j-1];
+            sorted[j-1] = temp;
+            j--;
+        }
+    }
+    return sorted[MEDIAN_SIZE/2];
+}
+#undef MEDIAN_SIZE
+
+
 void setCubeState(CubeState cb) {
     if(cb == cubeState)
         return;
@@ -275,9 +306,9 @@ Direction directionFromChar(char c) {
 
 Direction flipVertically(Direction d) {
     switch(d) {
-        case NORTH: return SOUTH;
-        case SOUTH: return NORTH;
-        default: return d;
+        case EAST: return WEST;
+        case WEST: return EAST;
+        default:   return d;
     }
 }
 
@@ -294,8 +325,40 @@ bool hasValidRotJunction(int point, Direction d) {
 // SPECIFIC STATE FUNCTIONS
 // ----------------
 
-// LINE FOLLOWING STATE
+// LINE FOLLOWING + TOF
 bool outOfJunction;
+
+void walkingHereSetup() {
+    blueLEDState = BLED_BLINKING;
+    outOfJunction = false;
+}
+
+void walkingHereLoop() {
+    Serial.print(tof);
+    
+    if (frontLeft == 0 && frontRight == 1)
+        setMovement(R_RIGHT);
+    else if (frontLeft == 1 && frontRight == 0)
+        setMovement(R_LEFT);
+    else if (frontLeft == 1 && frontRight == 1)
+        setMovement(M_FORWARD);
+    else if(frontLeft == 0 && frontRight == 0) {
+        reachedTheEnd = true;
+        setMovement(M_FORWARD);
+    }
+
+    // we can start in a junction and we must first ignore it
+    if(axleRight == 0 && axleLeft == 0)
+        outOfJunction = true;
+    if(outOfJunction && (axleRight == 1 || axleLeft == 1)) {
+        //updateOnJunction();
+        positon += directon;
+        switchState();
+    }
+}
+
+// LINE FOLLOWING STATE
+
 bool reachedTheEnd;
 
 void lineFollowingSetup() {
@@ -516,7 +579,7 @@ void depositLoop() {
                     setMovement(PIVOTB_RIGHT);
             }
             return;
-        case 7:
+        case 8:
             directon = NORTH;
             positon = initialCubeState == MAGNETIC ? 17 : 19;
             setState(LINE_FOLLOWING);
@@ -611,6 +674,9 @@ void switchState() {
             case 'c':
                 setState(VIBE_CHECK);
                 return;
+            case 'q':
+                setState(WALKING_HERE);
+                return;
             case 'W':
             case 'E':
             case 'N':
@@ -675,6 +741,9 @@ void setState(State newState) {
         case VIBE_CHECK:
             vibeCheckSetup();
             break;
+        case WALKING_HERE:
+            walkingHereSetup();
+            break;
         default:
             break;
     }
@@ -730,6 +799,9 @@ void statesLoop() {
         case VIBE_CHECK:
             vibeCheckLoop();
             break;
+        case WALKING_HERE:
+            walkingHereLoop();
+            break;
     }
 }
 
@@ -769,6 +841,7 @@ void loop() {
     axleLeft = digitalRead(axleLeftLSP);
     axleRight = digitalRead(axleRightLSP);
     ultrasonic = getUltrasonicDistance();
+    tof = time_of_flight();
     magnetic = digitalRead(magneticSensorPin);
     
     stateSensors();
