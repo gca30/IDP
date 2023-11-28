@@ -40,8 +40,8 @@ char* points = &pointsMatrix[4];
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]) - 1)
 char commands1[] = "mcWcmcNcmWcEmcmcScmEc";
 char commands2[] = "mWmmNmEqqqqSmWmmSm";
-int commandsCount = ARRAY_SIZE(commands2);
-char* commands = commands2;
+int commandsCount = ARRAY_SIZE(commands1);
+char* commands = commands1;
 int commandsIndex = 0;
 
 
@@ -228,7 +228,8 @@ float time_of_flight() {
     static float dists[MEDIAN_SIZE];
     static float sorted[MEDIAN_SIZE];
     float flight = tofSensor.getDistance();
-    
+    return flight;
+
     for(int i = 0; i < MEDIAN_SIZE-1; i++)
         dists[i] = dists[i+1];
     dists[MEDIAN_SIZE-1] = flight;
@@ -362,6 +363,7 @@ void walkingHereLoop() {
         setState(CATCH_BLOCK);
         return;
     }
+    Serial.println(tof);
     
     if (frontLeft == 0 && frontRight == 1)
         setMovement(R_RIGHT);
@@ -721,7 +723,7 @@ void deposit2Loop() {
             break;
         case 3:
             taskState = taskState + 1;
-            if(taskState == DONE) {
+            if(taskState == DONE || taskState == SCANNING_FIRST_CUBE) {
                 setState(INACTIVE);
                 return;
             }
@@ -957,7 +959,7 @@ void loop() {
     axleLeft = digitalRead(axleLeftLSP);
     axleRight = digitalRead(axleRightLSP);
     ultrasonic = getUltrasonicDistance();
-    tof = time_of_flight();
+    //tof = time_of_flight();
     magnetic = digitalRead(magneticSensorPin);
     
     stateSensors();
