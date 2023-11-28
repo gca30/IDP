@@ -1,5 +1,6 @@
 #include <Adafruit_MotorShield.h>
 #include <DFRobot_VL53L0X.h>
+#include <Wire.h>
 
 // ----------------
 // VARIABLES AND CONSTANTS
@@ -39,8 +40,8 @@ char* points = &pointsMatrix[4];
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]) - 1)
 char commands1[] = "mcWcmcNcmWcEmcmcScmEc";
 char commands2[] = "mWmmNmEqqqqSmWmmSm";
-int commandsCount = ARRAY_SIZE(commands1);
-char* commands = commands1;
+int commandsCount = ARRAY_SIZE(commands2);
+char* commands = commands2;
 int commandsIndex = 0;
 
 
@@ -58,7 +59,8 @@ enum State {
     PICKUP_DELAY, // Delay when the cube is picked up, the car stops, and LEDs are turned on
     VIBE_CHECK, // Stopping and checking if there is a cube at the next junction
     DEPOSIT_2, // Second part of depositing (waiting 5 seconds on start square)
-    WALKING_HERE // Line following while looking for a block on the side
+    WALKING_HERE, // Line following while looking for a block on the side
+    CATCH_BLOCK
 };
 
 // The setup function is called when the state is entered
@@ -94,6 +96,7 @@ enum Movement {
     R_RIGHT,
     M_FORWARD,
     M_BACKWARD,
+    M_SLOW,
     PIVOTB_RIGHT,
     PIVOTB_LEFT,
     PIVOTF_RIGHT,
@@ -109,7 +112,7 @@ enum BlueLEDState {
 BlueLEDState blueLEDState = BLED_OFF;
 
 State state = INACTIVE;
-TaskState taskState = LINE_FIRST_CUBE;
+TaskState taskState = SCANNING_FIRST_CUBE;
 CubeState cubeState = NO_CUBE;
 
 int positon = 18;
@@ -151,6 +154,12 @@ static inline void setMovement(Movement m) {
         case M_FORWARD:
             motor1->setSpeed(250);
             motor2->setSpeed(250);
+            motor1->run(FORWARD);
+            motor2->run(FORWARD);
+            break;
+        case M_SLOW:
+            motor1->setSpeed(150);
+            motor2->setSpeed(150);
             motor1->run(FORWARD);
             motor2->run(FORWARD);
             break;
@@ -214,11 +223,11 @@ float getUltrasonicDistance() {
 #undef MEDIAN_SIZE
 
 
-#define MEDIAN_SIZE 13
+#define MEDIAN_SIZE 9
 float time_of_flight() {
     static float dists[MEDIAN_SIZE];
     static float sorted[MEDIAN_SIZE];
-    float flight =  sensor.getDistance();
+    float flight = tofSensor.getDistance();
     
     for(int i = 0; i < MEDIAN_SIZE-1; i++)
         dists[i] = dists[i+1];
@@ -321,30 +330,48 @@ bool hasValidRotJunction(int point, Direction d) {
     }
 }
 
+bool isInTOFRange(float t) {
+    return t < 900.0 && t > 30.0;
+} 
+
 // ----------------
 // SPECIFIC STATE FUNCTIONS
 // ----------------
 
 // LINE FOLLOWING + TOF
+bool reachedTheEnd;
 bool outOfJunction;
+bool whDelay = 0;
 
 void walkingHereSetup() {
     blueLEDState = BLED_BLINKING;
     outOfJunction = false;
+    whDelay = 0;
 }
 
 void walkingHereLoop() {
-    Serial.print(tof);
+    if(whDelay < 10)
+        whDelay++;
+    if(isInTOFRange(tof)) {
+        Serial.print(whDelay);
+        Serial.print(" ");
+        Serial.println(tof);
+    }
+    if(isInTOFRange(tof)) {
+        Serial.println("GOT IT PLEASE");
+        setState(CATCH_BLOCK);
+        return;
+    }
     
     if (frontLeft == 0 && frontRight == 1)
         setMovement(R_RIGHT);
     else if (frontLeft == 1 && frontRight == 0)
         setMovement(R_LEFT);
     else if (frontLeft == 1 && frontRight == 1)
-        setMovement(M_FORWARD);
+        setMovement(M_SLOW);
     else if(frontLeft == 0 && frontRight == 0) {
         reachedTheEnd = true;
-        setMovement(M_FORWARD);
+        setMovement(M_SLOW);
     }
 
     // we can start in a junction and we must first ignore it
@@ -357,10 +384,91 @@ void walkingHereLoop() {
     }
 }
 
+// CATCH_BLOCK
+int catchDelay = 200;
+int catchStage = 0;
+int catchCount = 0;
+
+void catchBlockSetup() {
+    catchDelay = 20;
+    catchStage = 0;
+    catchCount = 0;
+    setMovement(M_FORWARD);
+    blueLEDState = BLED_OFF;
+}
+
+void catchBlockLoop() {
+    switch(catchStage) {
+        case 0:
+            catchDelay--;
+            if(catchDelay == 0) {
+                setMovement(M_FORWARD);
+                catchStage++;
+                catchDelay = 100;
+            }
+            break;
+        case 1:
+            if(isInTOFRange(tof))
+                catchCount++;
+            catchDelay--;
+            if(catchDelay == 0) {
+                if(catchCount < 50) {
+                    Serial.println("NOT ENOUGH!!!!!!");
+                    setState(WALKING_HERE);
+                    return;
+                }
+                catchCount = 0;
+                catchDelay = 120;
+                catchStage++;
+                setMovement(M_FORWARD);
+            }
+            break;
+        case 2:
+            catchDelay--;
+            if(catchDelay == 0) {
+                setMovement(R_LEFT);
+                catchStage++;
+            }
+            break;
+        case 3:
+            if(axleRight == 1 && axleLeft == 1) {
+                setMovement(M_FORWARD);
+                catchStage++;
+            }
+            break;
+        case 4:
+            if(axleRight == 0 && axleLeft == 0)
+                catchCount = 1;
+            if(catchCount != 1)
+              return;
+            if(axleRight == 1 && axleLeft == 1) {
+                catchStage++;
+                catchCount = 0;
+                setMovement(R_RIGHT);
+            }
+            else if(axleRight == 1)
+                setMovement(PIVOTF_RIGHT);
+            else if(axleLeft == 1)
+                setMovement(PIVOTF_LEFT);
+            break;
+          case 5:
+              if(axleRight == 0 && axleLeft == 0)
+                  catchCount = 1;
+              if(catchCount != 1)
+                  return;
+              if(axleRight == 1 && axleLeft == 1) {
+                  catchStage++;
+                  catchCount = 0;
+                  directon = SOUTH;
+                  positon = -3;
+                  desiredDir = EAST;
+                  setState(CHANGE_DIRECTION);
+              }
+              break;
+    }
+}
+
 // LINE FOLLOWING STATE
-
-bool reachedTheEnd;
-
 void lineFollowingSetup() {
     blueLEDState = BLED_BLINKING;
     outOfJunction = false;
@@ -442,14 +550,12 @@ void vibeCheckSetup() {
 }
 
 void vibeCheckLoop() {
-    Serial.println(ultrasonic);
     if(vibeCheckDelay > 0) {
         vibeCheckDelay--;
         return;
     }
     if(ultrasonic > 25.0 && ultrasonic < 40.0) {
         setCubeState(CUBE_NEXT_JUNCTION);
-        Serial.println("CUBE DETECTED HERE");
     }
     else
         points[positon + directon] = 'e';
@@ -717,6 +823,9 @@ void setState(State newState) {
     }
     // do setup for the new state
     switch(state) {
+        case CATCH_BLOCK:
+            catchBlockSetup();
+            break;
         case LINE_FOLLOWING:
             lineFollowingSetup();
             break;
@@ -775,6 +884,9 @@ void stateSensors() {
 void statesLoop() {
     // ACTION BASED ON STATE
     switch(state) {
+        case CATCH_BLOCK:
+            catchBlockLoop();
+            break;
         case INACTIVE:
             inactiveLoop();
             break;
@@ -811,7 +923,11 @@ void statesLoop() {
 // ----------------
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
+    Wire.begin();
+    tofSensor.begin(0x50);
+    tofSensor.setMode(tofSensor.eContinuous, tofSensor.eHigh);
+    tofSensor.start();
     if (!AFMS.begin()) {
         Serial.println("Could not find Motor Shield. Check wiring.");
         while (1);
