@@ -811,7 +811,10 @@ void switchState() {
         if(commands[commandsIndex] == 'c' && points[positon + directon] == 'e')
             commandsIndex++;
         if(commandsIndex == commandsCount) {
-            setState(INACTIVE);
+            // it will basically never go here
+            commandsIndex = 0;
+            desiredDir = NORTH;
+            setState(CHANGE_DIRECTION);
             return;
         }  
         commandsIndex++;
