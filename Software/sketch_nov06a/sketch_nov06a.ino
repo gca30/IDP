@@ -39,7 +39,7 @@ xoxox";
 char* points = &pointsMatrix[4];
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]) - 1)
 char commands1[] = "mcWcmcNcmWcEmcmcScmEc";
-char commands2[] = "mWmmNmEqqqqSmWmmSm";
+char commands2[] = "mWmmNmEqqqqNmWqSmmEmmSm";
 int commandsCount = ARRAY_SIZE(commands1);
 char* commands = commands1;
 int commandsIndex = 0;
@@ -112,7 +112,7 @@ enum BlueLEDState {
 BlueLEDState blueLEDState = BLED_OFF;
 
 State state = INACTIVE;
-TaskState taskState = SCANNING_FIRST_CUBE;
+TaskState taskState = LINE_FIRST_CUBE;
 CubeState cubeState = NO_CUBE;
 
 int positon = 18;
@@ -196,7 +196,7 @@ static inline void setMovement(Movement m) {
     }
 }
 
-#define MEDIAN_SIZE 13
+#define MEDIAN_SIZE 7
 float getUltrasonicDistance() {
     static float dists[MEDIAN_SIZE];
     static float sorted[MEDIAN_SIZE];
@@ -223,7 +223,7 @@ float getUltrasonicDistance() {
 #undef MEDIAN_SIZE
 
 
-#define MEDIAN_SIZE 9
+#define MEDIAN_SIZE 5
 float time_of_flight() {
     static float dists[MEDIAN_SIZE];
     static float sorted[MEDIAN_SIZE];
@@ -272,6 +272,8 @@ void setCubeState(CubeState cb) {
 }
 
 Direction backDirection(int point) {
+    if(point == 0)
+        return SOUTH;
     switch(point % 5) {
         case 1: case 2:
             return EAST;
@@ -325,14 +327,14 @@ Direction flipVertically(Direction d) {
 bool hasValidRotJunction(int point, Direction d) {
     switch(d) {
         case NORTH: return !(point == 2 || point == 3 || point == 4);
-        case EAST:  return !(point == 6 || point == 7 || point == 9 || point == 10);
-        case SOUTH: return !(point == 5 || point == 10);
+        case SOUTH:  return !(point == 6 || point == 7 || point == 9 || point == 10);
+        case EAST: return !(point == 5 || point == 10);
         case WEST:  return !(point == 1 || point == 6);
     }
 }
 
 bool isInTOFRange(float t) {
-    return t < 900.0 && t > 30.0;
+    return t < 900.0 && t > 10.0;
 } 
 
 // ----------------
@@ -342,28 +344,37 @@ bool isInTOFRange(float t) {
 // LINE FOLLOWING + TOF
 bool reachedTheEnd;
 bool outOfJunction;
-bool whDelay = 0;
+int whDelay = 0;
+bool pickedFromNorth = false;
 
 void walkingHereSetup() {
     blueLEDState = BLED_BLINKING;
     outOfJunction = false;
     whDelay = 0;
+    pickedFromNorth = positon < 1;
+    if(prevState != CATCH_BLOCK) {
+        setMovement(STOPPED);
+        Wire.end();
+        tofSensor.stop();
+        Wire.begin();
+        tofSensor.begin(0x50);
+        tofSensor.setMode(tofSensor.eContinuous, tofSensor.eHigh);
+        tofSensor.start();
+    }
 }
 
 void walkingHereLoop() {
-    if(whDelay < 10)
-        whDelay++;
+    if(whDelay < 20)
+        whDelay += 1;
     if(isInTOFRange(tof)) {
         Serial.print(whDelay);
         Serial.print(" ");
-        Serial.println(tof);
     }
-    if(isInTOFRange(tof)) {
+    if(whDelay > 19 && isInTOFRange(tof)) {
         Serial.println("GOT IT PLEASE");
         setState(CATCH_BLOCK);
         return;
     }
-    Serial.println(tof);
     
     if (frontLeft == 0 && frontRight == 1)
         setMovement(R_RIGHT);
@@ -395,23 +406,26 @@ void catchBlockSetup() {
     catchDelay = 20;
     catchStage = 0;
     catchCount = 0;
-    setMovement(M_FORWARD);
-    blueLEDState = BLED_OFF;
+    setMovement(STOPPED);
+    blueLEDState = BLED_ON;
 }
 
 void catchBlockLoop() {
+    Serial.println(catchStage);
     switch(catchStage) {
         case 0:
             catchDelay--;
             if(catchDelay == 0) {
-                setMovement(M_FORWARD);
+                setMovement(STOPPED);
                 catchStage++;
+                catchCount = 0;
                 catchDelay = 100;
             }
             break;
         case 1:
             if(isInTOFRange(tof))
                 catchCount++;
+            Serial.println(catchCount);
             catchDelay--;
             if(catchDelay == 0) {
                 if(catchCount < 50) {
@@ -420,22 +434,37 @@ void catchBlockLoop() {
                     return;
                 }
                 catchCount = 0;
-                catchDelay = 120;
+                catchDelay = 60;
                 catchStage++;
-                setMovement(M_FORWARD);
+                setMovement(STOPPED);
             }
             break;
         case 2:
-            catchDelay--;
+            if (frontLeft == 0 && frontRight == 1)
+                setMovement(R_RIGHT);
+            else if (frontLeft == 1 && frontRight == 0)
+                setMovement(R_LEFT);
+            else if (frontLeft == 1 && frontRight == 1) {
+                setMovement(M_SLOW);
+                catchDelay--;
+            }
+            else if(frontLeft == 0 && frontRight == 0) {
+                catchDelay--;
+                setMovement(M_SLOW);
+            }
             if(catchDelay == 0) {
                 setMovement(R_LEFT);
                 catchStage++;
+                catchDelay = 10;
             }
             break;
         case 3:
             if(axleRight == 1 && axleLeft == 1) {
-                setMovement(M_FORWARD);
-                catchStage++;
+                catchDelay--;
+                if(catchDelay == 0) {
+                    setMovement(M_FORWARD);
+                    catchStage++;
+                }
             }
             break;
         case 4:
@@ -449,9 +478,9 @@ void catchBlockLoop() {
                 setMovement(R_RIGHT);
             }
             else if(axleRight == 1)
-                setMovement(PIVOTF_RIGHT);
-            else if(axleLeft == 1)
                 setMovement(PIVOTF_LEFT);
+            else if(axleLeft == 1)
+                setMovement(PIVOTF_RIGHT);
             break;
           case 5:
               if(axleRight == 0 && axleLeft == 0)
@@ -461,10 +490,16 @@ void catchBlockLoop() {
               if(axleRight == 1 && axleLeft == 1) {
                   catchStage++;
                   catchCount = 0;
-                  directon = SOUTH;
-                  positon = -3;
+                  if(positon > 0) {
+                      directon = SOUTH;
+                      positon = -3;
+                  }
+                  else {
+                      directon = NORTH;
+                      positon = 5;
+                  }
                   desiredDir = EAST;
-                  setState(CHANGE_DIRECTION);
+                  setState(PICKUP_DELAY);
               }
               break;
     }
@@ -495,7 +530,10 @@ void lineFollowingLoop() {
         outOfJunction = true;
     if(outOfJunction && (axleRight == 1 || axleLeft == 1)) {
         //updateOnJunction();
-        positon += directon;
+        if(2 <= positon && positon <= 5 && directon == WEST && reachedTheEnd)
+            positon = 1;
+        else
+            positon += directon;
         switchState();
     }
 }
@@ -619,9 +657,9 @@ void inactiveLoop() {
 }
 
 // DEPOSIT STATE
-const int depositSmallForward = 160;
+const int depositSmallForward = 140;
 const int depositRotateM = 240; 
-const int depositRotateNM = 265;
+const int depositRotateNM = 260;
 const int depositForward = 850;
 const int depositBackward = 450;
 const int depositSmallBackward = 150;
@@ -677,7 +715,7 @@ void depositLoop() {
             if(axleRight == HIGH && axleLeft == HIGH) {
                 depositProgress++;
                 setMovement(initialCubeState == MAGNETIC ? R_RIGHT : R_LEFT);
-                depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateM;
+                depositTimer = initialCubeState == MAGNETIC ? depositRotateM : depositRotateNM;
                 return;
             }
             else if(axleRight == HIGH || axleLeft == HIGH) {
@@ -723,7 +761,7 @@ void deposit2Loop() {
             break;
         case 3:
             taskState = taskState + 1;
-            if(taskState == DONE || taskState == SCANNING_FIRST_CUBE) {
+            if(taskState == DONE || taskState == SCANNING_SECOND_CUBE) {
                 setState(INACTIVE);
                 return;
             }
@@ -804,25 +842,47 @@ void switchState() {
         else admitDefeat(); /* impossible */ 
     }
     else {
-        if(state == LINE_FOLLOWING && positon == 13)
+        if(state == PICKUP_DELAY && positon == -3) {
+            desiredDir = EAST;
+            setState(CHANGE_DIRECTION);
+            return;
+        }
+        if(state == CHANGE_DIRECTION && positon == -3) {
+            setState(LINE_FOLLOWING);
+            return;
+        }
+        if(state == LINE_FOLLOWING && positon == -2)
+            positon = 0;
+        if(state == LINE_FOLLOWING && positon == 13) {
             setState(DEPOSIT);
-        else if(state == PICKUP_DELAY || state == LINE_FOLLOWING) {
+            return;
+        }
+        if(taskState >= SCANNING_FIRST_CUBE && pickedFromNorth && positon != 1) {
+            if(directon != WEST) {
+                desiredDir = WEST;
+                setState(CHANGE_DIRECTION);
+            }
+            else
+                setState(LINE_FOLLOWING);
+            return;
+        }
+        pickedFromNorth = false;
+        if(state == PICKUP_DELAY || state == LINE_FOLLOWING) {
             desiredDir = backDirection(positon);
             if(desiredDir == directon)
                 setState(LINE_FOLLOWING);
             else
                 setState(CHANGE_DIRECTION);
+            return;
         }
-        else setState(LINE_FOLLOWING);
+        setState(LINE_FOLLOWING);
     }
 }
 
 // STATE SETUP
 void setState(State newState) {
-    if(newState != state) {
-        prevState = state;
-        state = newState;
-    }
+    prevState = state;
+    state = newState;
     // do setup for the new state
     switch(state) {
         case CATCH_BLOCK:
@@ -959,7 +1019,8 @@ void loop() {
     axleLeft = digitalRead(axleLeftLSP);
     axleRight = digitalRead(axleRightLSP);
     ultrasonic = getUltrasonicDistance();
-    //tof = time_of_flight();
+    if(state == INITIAL || state == WALKING_HERE || state == CATCH_BLOCK)
+        tof = time_of_flight();
     magnetic = digitalRead(magneticSensorPin);
     
     stateSensors();
