@@ -761,7 +761,7 @@ void deposit2Loop() {
             break;
         case 3:
             taskState = taskState + 1;
-            if(taskState == DONE || taskState == SCANNING_SECOND_CUBE) {
+            if(taskState == DONE) {
                 setState(INACTIVE);
                 return;
             }
@@ -810,8 +810,10 @@ void switchState() {
         // following commands
         if(commands[commandsIndex] == 'c' && points[positon + directon] == 'e')
             commandsIndex++;
-        if(commandsIndex == commandsCount)
-            admitDefeat();
+        if(commandsIndex == commandsCount) {
+            setState(INACTIVE);
+            return;
+        }  
         commandsIndex++;
         switch(commands[commandsIndex-1]) {
             case 'm':
